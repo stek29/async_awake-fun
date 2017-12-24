@@ -188,23 +188,9 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		}
 		fclose(f);
 	}
-	
-	// Remount / as rw - patch by xerub
+
 	{
-		vm_offset_t off = 0xd8;
-		uint64_t _rootvnode = find_rootvnode();
-		uint64_t rootfs_vnode = rk64(_rootvnode);
-		uint64_t v_mount = rk64(rootfs_vnode + off);
-		uint32_t v_flag = rk32(v_mount + 0x71);
-		
-		wk32(v_mount + 0x71, v_flag & ~(1 << 6));
-		
-		char *nmz = strdup("/dev/disk0s1s1");
-		int rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
-		printf("[fun] remounting: %d\n", rv);
-		
-		v_mount = rk64(rootfs_vnode + off);
-		wk32(v_mount + 0x71, v_flag);
+		printf("[fun] remounting: %d\n", mountroot());
 		
 		int fd = open("/.bit_of_fun", O_RDONLY);
 		if (fd == -1) {

@@ -26,6 +26,9 @@ enum kstruct_offset {
   
   /* struct proc */
   KSTRUCT_OFFSET_PROC_PID,
+  KSTRUCT_OFFSET_PROC_UCRED,
+  KSTRUCT_OFFSET_PROC_P_COMM,
+  KSTRUCT_OFFSET_PROC_P_CSFLAGS,
   
   /* struct ipc_space */
   KSTRUCT_OFFSET_IPC_SPACE_IS_TABLE,
@@ -45,6 +48,12 @@ enum kstruct_offset {
   /* struct cpu_data */
   KSTRUCT_OFFSET_CPU_DATA_EXCEPSTACKPTR,  // despite the name this actually points to the top of the stack, not the bottom
   KSTRUCT_OFFSET_CPU_DATA_CPU_PROCESSOR,
+
+  /* struct vnode */
+  KSTRUCT_OFFSET_VNODE_V_UN,
+
+  /* struct mount */
+  KSTRUCT_OFFSET_MOUNT_MNT_FLAG,
 };
 
 

@@ -11,11 +11,11 @@
 		6540F4BE1FEFF37000CF5B33 /* fun.m in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4BC1FEFF37000CF5B33 /* fun.m */; };
 		6540F4BF1FEFF37000CF5B33 /* fun_utils.c in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4BD1FEFF37000CF5B33 /* fun_utils.c */; };
 		6540F4D51FEFFB0200CF5B33 /* tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4CF1FEFFB0200CF5B33 /* tar */; };
-		6540F4D61FEFFB0200CF5B33 /* test.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 6540F4D01FEFFB0200CF5B33 /* test.dylib */; };
-		6540F4D71FEFFB0200CF5B33 /* amfid_payload.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */; };
 		6540F4D81FEFFB0200CF5B33 /* inject_amfid in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D21FEFFB0200CF5B33 /* inject_amfid */; };
 		6540F4D91FEFFB0200CF5B33 /* binpack.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D31FEFFB0200CF5B33 /* binpack.tar */; };
 		6540F4DA1FEFFB0200CF5B33 /* cydia.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D41FEFFB0200CF5B33 /* cydia.tar */; };
+		6540F4DB1FEFFD1900CF5B33 /* amfid_payload.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */; };
+		6540F4DC1FEFFD1900CF5B33 /* test.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D01FEFFB0200CF5B33 /* test.dylib */; };
 		B003EB351FC583CB00C58441 /* kmem.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB331FC583CA00C58441 /* kmem.c */; };
 		B003EB381FC5863800C58441 /* find_port.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB361FC5863800C58441 /* find_port.c */; };
 		B003EB3B1FC58F4900C58441 /* kdbg.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB391FC58F4900C58441 /* kdbg.c */; };
@@ -86,8 +86,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6540F4D61FEFFB0200CF5B33 /* test.dylib in Frameworks */,
-				6540F4D71FEFFB0200CF5B33 /* amfid_payload.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +247,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6540F4DB1FEFFD1900CF5B33 /* amfid_payload.dylib in Resources */,
+				6540F4DC1FEFFD1900CF5B33 /* test.dylib in Resources */,
 				6540F4DA1FEFFB0200CF5B33 /* cydia.tar in Resources */,
 				B0D79D621FDED41000B4F233 /* README in Resources */,
 				B07A02491FB09B6F0018ACE5 /* LaunchScreen.storyboard in Resources */,

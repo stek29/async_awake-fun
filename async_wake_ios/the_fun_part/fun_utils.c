@@ -7,6 +7,10 @@
 //
 
 #include "fun_utils.h"
+#include "kmem.h"
+#include "patchfinder64.h"
+#include "symbols.h"
+#include "sys/mount.h"
 
 uint32_t swap_uint32(uint32_t val) {
 	val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF );
@@ -129,4 +133,35 @@ out_error:
 int file_exist (char *filename) {
 	struct stat   buffer;
 	return (stat (filename, &buffer) == 0);
+}
+
+
+// based on xerub's code from kppless
+int mountroot(void) {
+    int ret;
+
+    uint64_t _rootvnode = find_rootvnode();
+    uint64_t rootfs_vnode = rk64(_rootvnode);
+
+    // We read and write v_flag one byte shifted into v_kernel_flag
+    // because lower byte is not needed to unset ROOTFS flag
+    // and because it contains RDONLY and we don't want to write back
+    // old value of RDONLY :)
+
+    // read original flags
+    uint64_t v_mount = rk64(rootfs_vnode + koffset(KSTRUCT_OFFSET_VNODE_V_UN));
+    uint32_t v_flag = rk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1);
+
+    // unset rootfs flag
+    wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1, v_flag & ~(MNT_ROOTFS >> 8));
+
+    // remount
+    char *nmz = strdup("/dev/disk0s1s1");
+    ret = mount("msdos", "/", MNT_UPDATE, (void *)&nmz);
+
+    // set original flags back
+    v_mount = rk64(rootfs_vnode + koffset(KSTRUCT_OFFSET_VNODE_V_UN));
+    wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1, v_flag);
+
+    return ret;
 }

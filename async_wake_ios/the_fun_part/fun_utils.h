@@ -33,4 +33,10 @@ uint8_t *get_code_directory(const char* name);
 int cp(const char *from, const char *to);
 int file_exist(char *filename);
 
+// Parts of jelbrek
+// unset MNT_ROOTFS flag, remount, set it back
+// based on xerub's extra_recipe code
+//
+int mountroot(void);
+
 #endif /* fun_utils_h */
