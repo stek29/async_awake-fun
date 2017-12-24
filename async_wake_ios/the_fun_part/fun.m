@@ -63,9 +63,6 @@ typedef struct {
 } kmap_hdr_t;
 
 void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
-	
-	init_kernel_utils(tfp0, user_client);
-	
 	// Loads the kernel into the patch finder, which just fetches the kernel memory for patchfinder use
 	init_kernel(find_kernel_base(), NULL);
 	
@@ -306,6 +303,9 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		
 		memmove(fake_chain.hash[0], hash, 20);
 		memmove(fake_chain.hash[1], hash2, 20);
+
+        free(hash);
+        free(hash2);
 		
 		uint64_t kernel_trust = kmem_alloc(sizeof(fake_chain));
 		wkbuffer(kernel_trust, &fake_chain, sizeof(fake_chain));
@@ -322,7 +322,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	pid_t pd;
 
 	const char* args[] = {BinaryLocation, itoa(amfid_pid), NULL};
-	int rv = posix_spawn(&pd, BinaryLocation, NULL, NULL, (char **)&args, NULL);
+	(void)posix_spawn(&pd, BinaryLocation, NULL, NULL, (char **)&args, NULL);
 
 //	mach_port_t pt = 0;
 //	printf("getting Springboards task: %s\n", mach_error_string(task_for_pid(mach_task_self(), 55, &pt)));

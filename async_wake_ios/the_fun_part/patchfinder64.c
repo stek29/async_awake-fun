@@ -9,12 +9,21 @@
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
+#include "kmem.h"
 
 typedef unsigned long long addr_t;
 
 #define IS64(image) (*(uint8_t *)(image) & 1)
 
 #define MACHO(p) ((*(unsigned int *)(p) & ~1) == 0xfeedface)
+
+#define kread(ptr, out, size) rkbuffer(ptr, out, (uint32_t)size)
+#define kwrite(ptr, out, size) wkbuffer(ptr, out, (uint32_t)size)
+#define kread64(ptr) rk64(ptr)
+#define kwrite64(ptr) wk64(ptr)
+#define kread32(ptr) rk32(ptr)
+#define kwrite64(ptr) wk64(ptr)
+#define kalloc(size) kmem_alloc(size)
 
 /* generic stuff *************************************************************/
 
@@ -426,7 +435,6 @@ follow_cbz(const uint8_t *buf, addr_t cbz)
 
 #ifdef __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
 #include <mach/mach.h>
-size_t kread(uint64_t where, void *p, size_t size);
 #endif
 
 static uint8_t *kernel = NULL;
@@ -448,7 +456,7 @@ static addr_t kernel_delta = 0;
 int
 init_kernel(addr_t base, const char *filename)
 {
-    size_t rv;
+//    size_t rv;
     uint8_t buf[0x4000];
     unsigned i, j;
     const struct mach_header *hdr = (struct mach_header *)buf;
@@ -459,10 +467,7 @@ init_kernel(addr_t base, const char *filename)
 
 #ifdef __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
 #define close(f)
-    rv = kread(base, buf, sizeof(buf));
-    if (rv != sizeof(buf)) {
-        return -1;
-    }
+    kread(base, buf, sizeof(buf));
 #else	/* __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ */
     int fd = open(filename, O_RDONLY);
     if (fd < 0) {
@@ -556,11 +561,11 @@ init_kernel(addr_t base, const char *filename)
     if (!kernel) {
         return -1;
     }
-    rv = kread(kerndumpbase, kernel, kernel_size);
-    if (rv != kernel_size) {
-        free(kernel);
-        return -1;
-    }
+    kread(kerndumpbase, kernel, kernel_size);
+//    if (rv != kernel_size) {
+//        free(kernel);
+//        return -1;
+//    }
 
     kernel_mh = kernel + base - min;
 

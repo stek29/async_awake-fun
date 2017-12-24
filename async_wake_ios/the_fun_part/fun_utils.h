@@ -33,14 +33,4 @@ uint8_t *get_code_directory(const char* name);
 int cp(const char *from, const char *to);
 int file_exist(char *filename);
 
-// Kernel utility stuff
-void init_kernel_utils(mach_port_t tfp0, mach_port_t user_client);
-//uint64_t kalloc(vm_size_t size);
-//size_t kread(uint64_t where, void *p, size_t size);
-//uint32_t kread32(uint64_t where);
-//uint64_t kread64(uint64_t where);
-//size_t kwrite(uint64_t where, const void *p, size_t size);
-//void kwrite32(uint64_t where, uint32_t what);
-//void kwrite64(uint64_t where, uint64_t what);
-
 #endif /* fun_utils_h */
