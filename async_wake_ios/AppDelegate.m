@@ -17,23 +17,6 @@
 
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-  // Override point for customization after application launch.
-	
-	mach_port_t user_client;
-	mach_port_t tfp0 = get_tfp0(&user_client);
-	
-//	NSLog(@"%d - %d - %d", sizeof(off_t), sizeof(uid_t), sizeof(gid_t));
-	
-	
-	let_the_fun_begin(tfp0, user_client);
-	
-	NSLog(@" ♫ KPP never bothered me anyway... ♫ ");
-	
-//	[@"test" writeToFile:@"/testingfiles" atomically:YES encoding:NSUTF8StringEncoding error:NULL];
-	
-	// the app seems to remain even after stopped by xcode - we'll just force it to quit 
-	kill(getpid(), SIGKILL);
-	
   return YES;
 }
 

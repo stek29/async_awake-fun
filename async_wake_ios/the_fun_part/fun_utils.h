@@ -34,9 +34,9 @@ int cp(const char *from, const char *to);
 int file_exist(char *filename);
 
 // Parts of jelbrek
-// unset MNT_ROOTFS flag, remount, set it back
-// based on xerub's extra_recipe code
-//
 int mountroot(void);
+extern uint64_t kern_ucred;
+int empower(uint64_t proc);
+void init_empower(uint64_t kern_proc);
 
 #endif /* fun_utils_h */

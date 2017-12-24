@@ -10,7 +10,9 @@
 #include "kmem.h"
 #include "patchfinder64.h"
 #include "symbols.h"
+#include "kcall.h"
 #include "sys/mount.h"
+#include "csdefs.h"
 
 uint32_t swap_uint32(uint32_t val) {
 	val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF );
@@ -136,7 +138,8 @@ int file_exist (char *filename) {
 }
 
 
-// based on xerub's code from kppless
+// unset MNT_ROOTFS flag, remount, set it back
+// based on xerub's extra_recipe code
 int mountroot(void) {
     int ret;
 
@@ -164,4 +167,32 @@ int mountroot(void) {
     wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1, v_flag);
 
     return ret;
+}
+
+uint64_t kern_ucred = 0;
+
+int empower(uint64_t proc) {
+    if (kern_ucred == 0) {
+        return -1;
+    }
+
+    uint32_t csflags = rk32(proc + koffset(KSTRUCT_OFFSET_PROC_P_CSFLAGS));
+    csflags = (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW | CS_VALID) & ~CS_ALLOWED_MACHO;
+    wk32(proc + koffset(KSTRUCT_OFFSET_PROC_P_CSFLAGS), csflags);
+    printf("empower proc at %llx\n", proc);
+
+    uint64_t self_ucred = 0;
+    kcall(find_copyout(), 3, proc + koffset(KSTRUCT_OFFSET_PROC_UCRED), &self_ucred, sizeof(self_ucred));
+
+    // steal kernel's label
+    kcall(find_bcopy(), 3, kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t));
+
+    // set uid, real uid, saved uid to 0
+    kcall(find_bzero(), 2, self_ucred + 0x18, 12);
+
+    return 0;
+}
+
+void init_empower(uint64_t kern_proc) {
+    kcall(find_copyout(), 3, kern_proc + koffset(KSTRUCT_OFFSET_PROC_UCRED), &kern_ucred, sizeof(kern_ucred));
 }

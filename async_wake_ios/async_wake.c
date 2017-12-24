@@ -724,11 +724,9 @@ mach_port_t get_kernel_memory_rw() {
 
 kern_return_t IOConnectTrap6(io_connect_t connect, uint32_t index, uintptr_t p1, uintptr_t p2, uintptr_t p3, uintptr_t p4, uintptr_t p5, uintptr_t p6);
 
-mach_port_t get_tfp0(mach_port_t*uc) {
+mach_port_t get_tfp0() {
   mach_port_t tfp0 = get_kernel_memory_rw();
   printf("tfp0: %x\n", tfp0);
-	
-	*uc = user_client;
   
 //  if (probably_have_correct_symbols()) {
 //    printf("have symbols for this device, testing the kernel debugger...\n");

@@ -8,6 +8,7 @@
 
 #include "fun.h"
 #include "kcall.h"
+#include "bootstrap.h"
 
 unsigned offsetof_p_pid = 0x10;               // proc_t::p_pid
 unsigned offsetof_task = 0x18;                // proc_t::task
@@ -62,7 +63,7 @@ typedef struct {
 	uint64_t end;
 } kmap_hdr_t;
 
-void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
+void let_the_fun_begin(mach_port_t tfp0) {
 	// Loads the kernel into the patch finder, which just fetches the kernel memory for patchfinder use
 	init_kernel(find_kernel_base(), NULL);
 	
@@ -94,56 +95,24 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	
 	uint64_t proc = rk64(find_allproc());
 	while (proc) {
-		uint32_t pid = (uint32_t)rk32(proc + 0x10);
+		uint32_t pid = (uint32_t)rk32(proc + koffset(KSTRUCT_OFFSET_PROC_PID));
 		char name[40] = {0};
-		rkbuffer(proc+0x268, name, 20);
+		rkbuffer(proc + koffset(KSTRUCT_OFFSET_PROC_P_COMM), name, 20);
 		if (pid == our_pid) {
 			our_proc = proc;
 		} else if (pid == 0) {
 			kern_proc = proc;
+            init_empower(kern_proc);
 		} else if (strstr(name, "amfid")) {
 			container_proc = proc;
 			amfid_pid = pid;
-//			printf("amfid's pid is %d", pid);
-//			uint64_t mac_pol = rk64(rk64(proc+0x100)+0x78);
-//			//				printf("MAC policies for this process are at %016llx\n", mac_pol);
-//			uint64_t amfi_mac_pol = rk64(mac_pol+0x8); // This is actually an OSDictionary zz
-//			//				printf("AMFI MAC policies at %016llx\n", amfi_mac_pol);
-//
-//			uint64_t str = kmem_alloc(strlen("get-task-allow")+1);
-//			wkbuffer(str, "get-task-allow", strlen("get-task-allow"));
-//			uint64_t bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
-//			kexecute(rk64(rk64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
-////
-//			str = kmem_alloc(strlen("dynamic-codesigning")+1);
-//			wkbuffer(str, "dynamic-codesigning", strlen("dynamic-codesigning"));
-//			bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
-//			kexecute(rk64(rk64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
-			
-			
-//			uint32_t f = rk32(amfi_mac_pol+20); // Number of items in the dictionary
-//			//				printf("%d\n", f);
-//
-//
-//			uint64_t g = rk64(amfi_mac_pol+32); // Item buffer
-//			//				printf("%016llx\n", g);
-//
-//			for (int i = 0; i < f; i++) {
-//				//					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
-//				printf("%016llx\n", rk64(rk64(g+16*i+8)));
-//				//					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
-//
-//				size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
-//
-//				char* s = (char*)calloc(length+1, 1);
-//				rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
-//				printf("%s\n", s);
-//
-//			}
-		}
+        } else if (strstr(name, "containerd")) {
+
+        }
 		if (pid != 0) {
-			uint32_t csflags = rk32(proc + offsetof_p_csflags);
-			wk32(proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW | CS_VALID) & ~(CS_RESTRICT | CS_HARD));
+            // fails if called before init_empower
+            // but first proc is kernel proc, isn't it?
+            empower(proc);
 		}
 		proc = rk64(proc);
 	}
@@ -151,26 +120,9 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	printf("[fun] our proc is at 0x%016llx\n", our_proc);
 	printf("[fun] kern proc is at 0x%016llx\n", kern_proc);
 	
-	// Give us some special flags
-//	uint32_t csflags = rk32(our_proc + offsetof_p_csflags);
-//	wk32(our_proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD));
-	
-	// Properly copy the kernel's credentials so setuid(0) doesn't crash
-	uint64_t kern_ucred = 0;
-	kexecute(find_copyout(), kern_proc+0x100, &kern_ucred, sizeof(kern_ucred), 0, 0, 0, 0);
-	
-	uint64_t self_ucred = 0;
-	kexecute(find_copyout(), our_proc+0x100, &self_ucred, sizeof(self_ucred), 0, 0, 0, 0);
+    empower(our_proc);
+    empower(container_proc);
 
-	kexecute(find_bcopy(), kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t), 0, 0, 0, 0);
-	kexecute(find_bzero(), self_ucred + 0x18, 12, 0, 0, 0, 0, 0);
-	
-	uint64_t sb_ucred = 0;
-	kexecute(find_copyout(), container_proc+0x100, &sb_ucred, sizeof(sb_ucred), 0, 0, 0, 0);
-	
-	kexecute(find_bcopy(), kern_ucred + 0x78, sb_ucred + 0x78, sizeof(uint64_t), 0, 0, 0, 0);
-	kexecute(find_bzero(), sb_ucred + 0x18, 12, 0, 0, 0, 0, 0);
-	
 	// setuid(0) + test
 	{
 		
@@ -201,6 +153,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		close(fd);
 		
 		printf("[fun] Did we mount / as read+write? %s\n", file_exist("/.bit_of_fun") ? "yes" : "no");
+        unlink("/.bit_of_fun");
 	}
 	
 	// Prepare our binaries
@@ -274,7 +227,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 			uint64_t next; 				// +0x00 - the next struct trust_mem
 			unsigned char uuid[16];		// +0x08 - The uuid of the trust_mem (it doesn't seem important or checked apart from when importing a new trust chain)
 			unsigned int count;			// +0x18 - Number of hashes there are
-			hash_t hash[10];		// +0x1C - The hashes
+			hash_t hash[10];		    // +0x1C - The hashes
 		};
 		
 		struct trust_chain fake_chain;
@@ -303,151 +256,8 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //	printf("[fun] currently cs_debug is at %d\n", rk32(0xFFFFFFF0076220EC+slide));
 //	wk32(0xFFFFFFF0076220EC+slide, 100);
 	
-#define BinaryLocation "/fun_bins/inject_amfid"
-	
-	pid_t pd;
-
-	const char* args[] = {BinaryLocation, itoa(amfid_pid), NULL};
-	(void)posix_spawn(&pd, BinaryLocation, NULL, NULL, (char **)&args, NULL);
-
-//	mach_port_t pt = 0;
-//	printf("getting Springboards task: %s\n", mach_error_string(task_for_pid(mach_task_self(), 55, &pt)));
-
-	int tries = 3;
-	while (tries-- > 0) {
-		sleep(1);
-		uint64_t proc = rk64(find_allproc());
-		while (proc) {
-			uint32_t pid = rk32(proc + offsetof_p_pid);
-			if (pid == pd) {
-				uint32_t csflags = rk32(proc + offsetof_p_csflags);
-				csflags = (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT  | CS_HARD);
-				wk32(proc + offsetof_p_csflags, csflags);
-				tries = 0;
-				
-//				uint64_t self_ucred = 0;
-//				kexecute(find_copyout(), proc+0x100, &self_ucred, sizeof(self_ucred), 0, 0, 0, 0);
-////
-////				KCALL(find_bcopy(), kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t), 0, 0, 0, 0);
-////				KCALL(find_bzero(), self_ucred + 0x18, 12, 0, 0, 0, 0, 0);
-//
-//
-//
-//				uint64_t mac_pol = rk64(self_ucred+0x78);
-////				printf("MAC policies for this process are at %016llx\n", mac_pol);
-//				uint64_t amfi_mac_pol = rk64(mac_pol+0x8); // This is actually an OSDictionary zz
-////				printf("AMFI MAC policies at %016llx\n", amfi_mac_pol);
-//
-//				uint32_t f = rk32(amfi_mac_pol+20); // Number of items in the dictionary
-////				printf("%d\n", f);
-//
-//
-//				uint64_t g = rk64(amfi_mac_pol+32); // Item buffer
-////				printf("%016llx\n", g);
-//
-//				for (int i = 0; i < f; i++) {
-////					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
-//					printf("%016llx\n", rk64(rk64(g+16*i+8)));
-////					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
-//
-//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
-//
-//					char* s = (char*)calloc(length+1, 1);
-//					rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
-//					printf("%s\n", s);
-//
-//				}
-//
-//				printf("Gave us task_for_pid-allow\n");
-//
-//
-////
-//				uint64_t str = kmem_alloc(strlen("task_for_pid-allow")+1);
-//				wkbuffer(str, "task_for_pid-allow", strlen("task_for_pid-allow"));
-//				uint64_t getObject = rk64(rk64(amfi_mac_pol)+304);
-//				uint64_t out = ZM_FIX_ADDR(kexecute(getObject, amfi_mac_pol, str, 0, 0, 0, 0, 0));
-//
-//				printf("%08x\n", rk32(out+0xc));
-//
-////				printf("%016llx\n", kexecute(slide+0xFFFFFFF00707FB58, out, 0, 0, 0, 0, 0, 0));
-////
-////				KCALL(getObject, amfi_mac_pol, str, 0, 0, 0, 0, 0);
-////				uint64_t out = returnval;
-//				printf("%016llx\n", out);
-////
-////				KCALL(slide+0xFFFFFFF00707FB58, out|0xfffffff000000000, 0, 0, 0, 0, 0, 0);
-////				printf("%016llx\n", returnval);
-////
-//
-//
-//				uint64_t bo = kmem_alloc(8);
-//				kexecute(0xFFFFFFF00637D88C + slide, proc, str, bo, 0, 0, 0, 0);
-//				printf("hi - %016llx\n", rk64(bo));
-//
-//				uint64_t new_ent_dict = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074AAD50+slide, 4, 0, 0, 0, 0, 0, 0)); // OSDictionary::withCapacity
-//				printf("new_ent_dict - %016llx\n", rk64(new_ent_dict));
-//
-//				uint64_t symbol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074C2D90+slide, str, 0, 0, 0, 0, 0, 0)); // OSSymbol::withCString
-//				printf("symbol - %016llx\n", rk64(symbol));
-//
-//				uint64_t bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0)); // OSBoolean::withBoolean
-////																					 0x0000000012800000
-//				printf("bol - %016llx\n", rk64(bol));
-//				uint64_t bol2 = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
-//
-//				uint64_t str2 = kmem_alloc(strlen("com.apple.system-task-ports")+1);
-//				wkbuffer(str2, "com.apple.system-task-ports", strlen("com.apple.system-task-ports"));
-//
-//
-//				kexecute(rk64(rk64(new_ent_dict)+8*31), new_ent_dict, str, bol, 0, 0, 0, 0);
-//				kexecute(rk64(rk64(new_ent_dict)+8*31), new_ent_dict, str2, bol2, 0, 0, 0, 0);
-//				wk64(rk64(kern_ucred+0x78)+0x8, amfi_mac_pol);
-//
-//
-////				uint64_t vnode = rk64(proc+0x248);
-////				uint64_t off =rk64(proc+0x250);
-//
-//				uint64_t csblob = ZM_FIX_ADDR(kexecute(slide+0xFFFFFFF0073B717C, our_proc, 0, 0, 0, 0, 0, 0));
-//				printf("csblob - %016llx\n", csblob);
-//
-//				uint64_t dict = ZM_FIX_ADDR(kexecute(slide+0xFFFFFFF0073B71F4, csblob, 0, 0, 0, 0, 0, 0));
-//				printf("dict - %016llx - %016llx\n", dict, rk64(dict));
-//
-//				kexecute(rk64(rk64(dict)+8*31), dict, str, bol, 0, 0, 0, 0);
-//				kexecute(rk64(rk64(dict)+8*31), dict, str2, bol2, 0, 0, 0, 0);
-//
-//				kexecute(slide+0xFFFFFFF0073B7228, csblob, dict, 0, 0, 0, 0, 0);
-////
-//				 f = rk32(dict+20); // Number of items in the dictionary
-//				//				printf("%d\n", f);
-//
-//
-//				 g = rk64(dict+32); // Item buffer
-//				//				printf("%016llx\n", g);
-//
-//				for (int i = 0; i < f; i++) {
-//					//					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
-//					printf("%016llx\n", rk64(rk64(g+16*i+8)));
-//					//					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
-//
-//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
-//
-//					char* s = (char*)calloc(length+1, 1);
-//					rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
-//					printf("%s\n", s);
-//
-//				}
-
-				break;
-			}
-			proc = rk64(proc);
-		}
-	}
-
-	waitpid(pd, NULL, 0);
-	
-	
-	
+    const char* BinaryLocation = "/fun_bins/inject_amfid";
+	startprog(STARTPROG_WAIT|STARTPROG_EMPOWER, BinaryLocation, (const char*[]){BinaryLocation, itoa(amfid_pid), NULL}, NULL);
 	
 	// Cleanup
 	
@@ -455,7 +265,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //	rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
 //	printf("[fun] remounting: %d\n", rv);
 
-	wk64(rk64(kern_ucred+0x78)+0x8, 0);
+//    wk64(rk64(kern_ucred+0x78)+0x8, 0);
 	term_kernel();
 	
 }

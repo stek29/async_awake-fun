@@ -16,6 +16,7 @@
 		6540F4DA1FEFFB0200CF5B33 /* cydia.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D41FEFFB0200CF5B33 /* cydia.tar */; };
 		6540F4DB1FEFFD1900CF5B33 /* amfid_payload.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */; };
 		6540F4DC1FEFFD1900CF5B33 /* test.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D01FEFFB0200CF5B33 /* test.dylib */; };
+		6540F4E01FF00B2800CF5B33 /* bootstrap.c in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4DF1FF00B2800CF5B33 /* bootstrap.c */; };
 		B003EB351FC583CB00C58441 /* kmem.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB331FC583CA00C58441 /* kmem.c */; };
 		B003EB381FC5863800C58441 /* find_port.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB361FC5863800C58441 /* find_port.c */; };
 		B003EB3B1FC58F4900C58441 /* kdbg.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB391FC58F4900C58441 /* kdbg.c */; };
@@ -46,6 +47,9 @@
 		6540F4D21FEFFB0200CF5B33 /* inject_amfid */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = inject_amfid; path = binaries/inject_amfid; sourceTree = "<group>"; };
 		6540F4D31FEFFB0200CF5B33 /* binpack.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; name = binpack.tar; path = binaries/binpack.tar; sourceTree = "<group>"; };
 		6540F4D41FEFFB0200CF5B33 /* cydia.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; name = cydia.tar; path = binaries/cydia.tar; sourceTree = "<group>"; };
+		6540F4DD1FF0098D00CF5B33 /* csdefs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = csdefs.h; sourceTree = "<group>"; };
+		6540F4DE1FF00B2800CF5B33 /* bootstrap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bootstrap.h; sourceTree = "<group>"; };
+		6540F4DF1FF00B2800CF5B33 /* bootstrap.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bootstrap.c; sourceTree = "<group>"; };
 		B003EB331FC583CA00C58441 /* kmem.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kmem.c; sourceTree = "<group>"; };
 		B003EB341FC583CA00C58441 /* kmem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kmem.h; sourceTree = "<group>"; };
 		B003EB361FC5863800C58441 /* find_port.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = find_port.c; sourceTree = "<group>"; };
@@ -185,6 +189,9 @@
 				BC8EE46E1FE2B4E800402F32 /* patchfinder64.h */,
 				BC8B64C31FE5252F00EDF749 /* fun_objc.m */,
 				BC8B64C51FE5253B00EDF749 /* fun_objc.h */,
+				6540F4DD1FF0098D00CF5B33 /* csdefs.h */,
+				6540F4DE1FF00B2800CF5B33 /* bootstrap.h */,
+				6540F4DF1FF00B2800CF5B33 /* bootstrap.c */,
 			);
 			path = the_fun_part;
 			sourceTree = "<group>";
@@ -276,6 +283,7 @@
 				BC8B64C41FE5252F00EDF749 /* fun_objc.m in Sources */,
 				B07A024C1FB09B6F0018ACE5 /* main.m in Sources */,
 				B003EB381FC5863800C58441 /* find_port.c in Sources */,
+				6540F4E01FF00B2800CF5B33 /* bootstrap.c in Sources */,
 				B07A02541FB09C3D0018ACE5 /* async_wake.c in Sources */,
 				B07A023E1FB09B6F0018ACE5 /* AppDelegate.m in Sources */,
 				BC8EE46F1FE2B4E800402F32 /* patchfinder64.c in Sources */,
