@@ -24,7 +24,6 @@ const char* progname(const char* prog) {
     uint32_t size = sizeof(path);
     _NSGetExecutablePath(path, &size);
     char *pt = realpath(path, NULL);
-
     NSString *execpath = [[NSString stringWithUTF8String:pt] stringByDeletingLastPathComponent];
 
     NSString *bootstrap = [execpath stringByAppendingPathComponent:[NSString stringWithUTF8String:prog]];
