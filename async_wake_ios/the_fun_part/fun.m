@@ -21,31 +21,6 @@ unsigned offsetof_ip_mscount = 0x9C;          // ipc_port_t::ip_mscount (ipc_por
 unsigned offsetof_ip_srights = 0xA0;          // ipc_port_t::ip_srights (ipc_port_make_send)
 unsigned offsetof_special = 2 * sizeof(long); // host::special
 
-#define	CS_VALID		0x0000001	/* dynamically valid */
-#define CS_ADHOC		0x0000002	/* ad hoc signed */
-#define CS_GET_TASK_ALLOW	0x0000004	/* has get-task-allow entitlement */
-#define CS_INSTALLER		0x0000008	/* has installer entitlement */
-
-#define	CS_HARD			0x0000100	/* don't load invalid pages */
-#define	CS_KILL			0x0000200	/* kill process if it becomes invalid */
-#define CS_CHECK_EXPIRATION	0x0000400	/* force expiration checking */
-#define CS_RESTRICT		0x0000800	/* tell dyld to treat restricted */
-#define CS_ENFORCEMENT		0x0001000	/* require enforcement */
-#define CS_REQUIRE_LV		0x0002000	/* require library validation */
-#define CS_ENTITLEMENTS_VALIDATED	0x0004000
-
-#define	CS_ALLOWED_MACHO	0x00ffffe
-
-#define CS_EXEC_SET_HARD	0x0100000	/* set CS_HARD on any exec'ed process */
-#define CS_EXEC_SET_KILL	0x0200000	/* set CS_KILL on any exec'ed process */
-#define CS_EXEC_SET_ENFORCEMENT	0x0400000	/* set CS_ENFORCEMENT on any exec'ed process */
-#define CS_EXEC_SET_INSTALLER	0x0800000	/* set CS_INSTALLER on any exec'ed process */
-
-#define CS_KILLED		0x1000000	/* was killed by kernel for invalidity */
-#define CS_DYLD_PLATFORM	0x2000000	/* dyld used to load this is a platform binary */
-#define CS_PLATFORM_BINARY	0x4000000	/* this is a platform binary */
-#define CS_PLATFORM_PATH	0x8000000	/* platform binary by the fact of path (osx only) */
-
 char *itoa(long n)
 {
 	int len = n==0 ? 1 : floor(log10l(labs(n)))+1;
@@ -62,6 +37,8 @@ typedef struct {
 	uint64_t start;
 	uint64_t end;
 } kmap_hdr_t;
+
+uint64_t our_proc = 0;
 
 void let_the_fun_begin(mach_port_t tfp0) {
 	// Loads the kernel into the patch finder, which just fetches the kernel memory for patchfinder use
@@ -88,7 +65,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	
 	// Get our and the kernels struct proc from allproc
 	uint32_t our_pid = getpid();
-	uint64_t our_proc = 0;
+	our_proc = 0;
 	uint64_t kern_proc = 0;
 	uint64_t container_proc = 0;
 	uint32_t amfid_pid = 0;
@@ -159,7 +136,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	// Prepare our binaries
 	{
 		if (!file_exist("/fun_bins")) {
-			mkdir("/fun_bins", 777);
+			mkdir("/fun_bins", 0777);
 		}
 		
 		/* uncomment if you need to replace the binaries */
@@ -169,15 +146,15 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 
 		if (!file_exist("/fun_bins/inject_amfid")) {
 			cp(resourceInBundle("inject_amfid"), "/fun_bins/inject_amfid");
-			chmod("/fun_bins/inject_amfid", 777);
+			chmod("/fun_bins/inject_amfid", 0777);
 		}
 		if (!file_exist("/fun_bins/amfid_payload.dylib")) {
 			cp(resourceInBundle("amfid_payload.dylib"), "/fun_bins/amfid_payload.dylib");
-			chmod("/fun_bins/amfid_payload.dylib", 777);
+			chmod("/fun_bins/amfid_payload.dylib", 0777);
 		}
 		if (!file_exist("/fun_bins/test.dylib")) {
 			cp(resourceInBundle("test.dylib"), "/fun_bins/test.dylib");
-			chmod("/fun_bins/test.dylib", 777);
+			chmod("/fun_bins/test.dylib", 0777);
 		}
 		
 		printf("[fun] copied the required binaries into the right places\n");
@@ -236,16 +213,19 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		*(uint64_t *)&fake_chain.uuid[0] = 0xabadbabeabadbabe;
 		*(uint64_t *)&fake_chain.uuid[8] = 0xabadbabeabadbabe;
 		fake_chain.count = 2;
-		
-		uint8_t *hash = get_sha256(get_code_directory("/fun_bins/inject_amfid"));
-		uint8_t *hash2 = get_sha256(get_code_directory("/fun_bins/amfid_payload.dylib"));
-		
-		memmove(fake_chain.hash[0], hash, 20);
-		memmove(fake_chain.hash[1], hash2, 20);
 
-        free(hash);
-        free(hash2);
-		
+        const char *injectthese[] = {
+            ("/fun_bins/inject_amfid"),
+            ("/fun_bins/amfid_payload.dylib"),
+        };
+        size_t injectthese_size = sizeof(injectthese)/sizeof(injectthese[0]);
+
+        for (int i = 0; i != injectthese_size; ++i) {
+            uint8_t *hash = get_sha256(get_code_directory(injectthese[i]));
+            memmove(fake_chain.hash[i], hash, sizeof(hash_t));
+            free(hash);
+        }
+
 		uint64_t kernel_trust = kmem_alloc(sizeof(fake_chain));
 		wkbuffer(kernel_trust, &fake_chain, sizeof(fake_chain));
 		wk64(tc, kernel_trust);
@@ -257,7 +237,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //	wk32(0xFFFFFFF0076220EC+slide, 100);
 	
     const char* BinaryLocation = "/fun_bins/inject_amfid";
-	startprog(STARTPROG_WAIT|STARTPROG_EMPOWER, BinaryLocation, (const char*[]){BinaryLocation, itoa(amfid_pid), NULL}, NULL);
+	startprog(STARTPROG_WAIT, BinaryLocation, (const char*[]){BinaryLocation, itoa(amfid_pid), NULL}, NULL);
 	
 	// Cleanup
 	

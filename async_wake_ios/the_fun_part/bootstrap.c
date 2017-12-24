@@ -21,9 +21,13 @@ int startprog(int flags, const char *prog, const char* args[], const char* envp[
     int rv = posix_spawn(&pd, prog, NULL, NULL, (char**)args, (char**)envp);
 
     printf("spawn '%s': pid=%d\n", prog, pd);
-    printf("rv=%d\n", rv);
+    printf("posix_spawn: =%d (%s)\n", rv, (rv == 0)?"success":strerror(rv));
 
-    if ((flags & STARTPROG_EMPOWER) && (kern_ucred == 0)) {
+    if (rv != 0) {
+        return rv;
+    }
+
+    if ((flags & STARTPROG_EMPOWER) && (kern_ucred != 0)) {
         int tries = 3;
         while (tries-- > 0) {
             sleep(1);
@@ -40,8 +44,16 @@ int startprog(int flags, const char *prog, const char* args[], const char* envp[
         }
     }
 
-    if (flags & STARTPROG_WAIT)
-        waitpid(pd, NULL, 0);
+    if (flags & STARTPROG_WAIT) {
+        // why does it always return -1?!
+        int wpv = waitpid(pd, &rv, 0);
+        printf("waitpid: =%d\n", wpv);
+        if (wpv == -1) {;
+            rv = wpv;
+        } else {
+            printf("exit code: =%d\n", rv);
+        }
+    }
 
     return rv;
 }
@@ -51,11 +63,15 @@ static int tar_ready = 0;
 
 int untar(const char* archive, const char *dstdir) {
     if (!tar_ready) {
-        mkdir("/" BOOTSTRAP_PREFIX, 0777);
-        cp(tar, resourceInBundle("tar"));
-        chmod(tar, 0777);
+        printf("mkdir: %d\n", mkdir("/" BOOTSTRAP_PREFIX, 777));
+        printf("unlink: %d\n", unlink(tar));
+        printf("cp: %d\n", cp(resourceInBundle("tar"), tar));
+        printf("chmod: %d\n", chmod(tar, 777));
         tar_ready = 1;
     }
 
-    return startprog(STARTPROG_WAIT, tar, (const char*[]){ tar, "-xpf", archive, "-C", dstdir, NULL }, NULL);
+    return startprog(STARTPROG_EMPOWER|STARTPROG_WAIT,
+                     tar,
+                     (const char*[]){ tar, "-xvpf", archive, "-C", dstdir, NULL },
+                     NULL);
 }

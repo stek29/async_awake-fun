@@ -622,6 +622,15 @@ term_kernel(void)
 #define INSN_B    0x14000000, 0xFC000000
 #define INSN_CBZ  0x34000000, 0xFC000000
 
+#define cached_find(x) \
+uint64_t find_##x(void) {\
+static uint64_t cached = 0;\
+if (cached == 0) {\
+cached = _find_##x();\
+}\
+return cached;\
+}
+
 addr_t
 find_register_value(addr_t where, int reg)
 {
@@ -708,7 +717,7 @@ addr_t find_add_x0_x0_0x40_ret(void) {
 	return 0;
 }
 
-uint64_t find_allproc(void) {
+uint64_t _find_allproc(void) {
 	// Find the first reference to the string
 	addr_t ref = find_strref("\"pgrp_add : pgrp is dead adding process\"", 1, 0);
 	if (!ref) {
@@ -743,68 +752,76 @@ uint64_t find_allproc(void) {
 	return val + kerndumpbase;
 }
 
-uint64_t find_copyout(void) {
-	// Find the first reference to the string
-	addr_t ref = find_strref("\"%s(%p, %p, %lu) - transfer too large\"", 2, 0);
-	if (!ref) {
-		return 0;
-	}
-	ref -= kerndumpbase;
-	
-	uint64_t start = 0;
-	for (int i = 4; i < 0x100*4; i+=4) {
-		uint32_t op = *(uint32_t*)(kernel+ref-i);
-		if (op == 0xd10143ff) { // SUB SP, SP, #0x50
-			start = ref-i;
-			break;
-		}
-	}
-	if (!start) {
-		return 0;
-	}
-	
+cached_find(allproc);
+
+
+uint64_t _find_copyout(void) {
+    // Find the first reference to the string
+    addr_t ref = find_strref("\"%s(%p, %p, %lu) - transfer too large\"", 2, 0);
+    if (!ref) {
+        return 0;
+    }
+    ref -= kerndumpbase;
+
+    uint64_t start = 0;
+    for (int i = 4; i < 0x100*4; i+=4) {
+        uint32_t op = *(uint32_t*)(kernel+ref-i);
+        if (op == 0xd10143ff) { // SUB SP, SP, #0x50
+            start = ref-i;
+            break;
+        }
+    }
+    if (!start) {
+        return 0;
+    }
 	return start + kerndumpbase;
 }
 
-uint64_t find_bzero(void) {
-	// Just find SYS #3, c7, c4, #1, X3, then get the start of that function
-	addr_t off;
-	uint32_t *k;
-	k = (uint32_t *)(kernel + xnucore_base);
-	for (off = 0; off < xnucore_size - 4; off += 4, k++) {
-		if (k[0] == 0xd50b7423) {
-			off += xnucore_base;
-			break;
-		}
-	}
-	
-	uint64_t start = bof64(kernel, xnucore_base, off);
-	if (!start) {
-		return 0;
-	}
-	
-	return start + kerndumpbase;
+cached_find(copyout);
+
+uint64_t _find_bzero(void) {
+    // Just find SYS #3, c7, c4, #1, X3, then get the start of that function
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if (k[0] == 0xd50b7423) {
+            off += xnucore_base;
+            break;
+        }
+    }
+
+    uint64_t start = bof64(kernel, xnucore_base, off);
+    if (!start) {
+        return 0;
+    }
+
+    return start + kerndumpbase;
 }
 
-addr_t find_bcopy(void) {
-	// Jumps straight into memmove after switching x0 and x1 around
-	// Guess we just find the switch and that's it
-	addr_t off;
-	uint32_t *k;
-	k = (uint32_t *)(kernel + xnucore_base);
-	for (off = 0; off < xnucore_size - 4; off += 4, k++) {
-		if (k[0] == 0xAA0003E3 && k[1] == 0xAA0103E0 && k[2] == 0xAA0303E1 && k[3] == 0xd503201F) {
-			return off + xnucore_base + kerndumpbase;
-		}
-	}
-	k = (uint32_t *)(kernel + prelink_base);
-	for (off = 0; off < prelink_size - 4; off += 4, k++) {
-		if (k[0] == 0xAA0003E3 && k[1] == 0xAA0103E0 && k[2] == 0xAA0303E1 && k[3] == 0xd503201F) {
-			return off + prelink_base + kerndumpbase;
-		}
-	}
-	return 0;
+cached_find(bzero);
+
+addr_t _find_bcopy(void) {
+    // Jumps straight into memmove after switching x0 and x1 around
+    // Guess we just find the switch and that's it
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if (k[0] == 0xAA0003E3 && k[1] == 0xAA0103E0 && k[2] == 0xAA0303E1 && k[3] == 0xd503201F) {
+            return off + xnucore_base + kerndumpbase;
+        }
+    }
+    k = (uint32_t *)(kernel + prelink_base);
+    for (off = 0; off < prelink_size - 4; off += 4, k++) {
+        if (k[0] == 0xAA0003E3 && k[1] == 0xAA0103E0 && k[2] == 0xAA0303E1 && k[3] == 0xd503201F) {
+            return off + prelink_base + kerndumpbase;
+        }
+    }
+    return 0;
 }
+
+cached_find(bcopy);
 
 uint64_t find_rootvnode(void) {
 	// Find the first reference to the string

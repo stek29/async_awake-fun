@@ -38,7 +38,6 @@
                                         <rect key="frame" x="0.0" y="80" width="49" height="30"/>
                                         <state key="normal" title="suicide"/>
                                         <connections>
-                                            <action selector="sshTUI:" destination="BYZ-38-t0r" eventType="touchUpInside" id="G7D-H2-klG"/>
                                             <action selector="suicideTUI:" destination="BYZ-38-t0r" eventType="touchUpInside" id="StE-IL-TkX"/>
                                         </connections>
                                     </button>

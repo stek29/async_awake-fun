@@ -56,4 +56,6 @@ extern uint64_t iokit_user_client_trap(
 
 void let_the_fun_begin(mach_port_t tfp0);
 
+extern uint64_t our_proc;
+
 #endif /* fun_h */

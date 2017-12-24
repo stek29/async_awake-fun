@@ -13,13 +13,20 @@
 #include "kcall.h"
 #include "sys/mount.h"
 #include "csdefs.h"
+#include <mach-o/loader.h>
+#include <mach-o/fat.h>
 
 uint32_t swap_uint32(uint32_t val) {
 	val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF );
 	return (val << 16) | (val >> 16);
 }
 
-uint8_t *get_sha256_inplace(uint8_t* code_dir, uint8_t out[CC_SHA256_DIGEST_LENGTH]) {
+void get_sha256_inplace(uint8_t* code_dir, uint8_t out[CC_SHA256_DIGEST_LENGTH]) {
+    if (code_dir == NULL) {
+        printf("NULL passed to get_sha256_inplace!\n");
+        return;
+    }
+
     uint32_t* code_dir_int = (uint32_t*)code_dir;
 
     uint32_t realsize = 0;
@@ -31,8 +38,6 @@ uint8_t *get_sha256_inplace(uint8_t* code_dir, uint8_t out[CC_SHA256_DIGEST_LENG
     }
 
     CC_SHA256(code_dir, realsize, out);
-
-    return out;
 }
 
 uint8_t *get_sha256(uint8_t* code_dir) {
@@ -42,35 +47,97 @@ uint8_t *get_sha256(uint8_t* code_dir) {
 }
 
 uint8_t *get_code_directory(const char* name) {
-	// Assuming it is a macho
-	
-	FILE* fd = fopen(name, "r");
-	
-	printf("%s\n", name);
-	
-	struct mach_header_64 mh;
-	fread(&mh, sizeof(struct mach_header_64), 1, fd);
-	
-	long off = sizeof(struct mach_header_64);
-	for (int i = 0; i < mh.ncmds; i++) {
-		struct load_command cmd;
-		fseek(fd, off, SEEK_SET);
-		fread(&cmd, sizeof(struct load_command), 1, fd);
-		if (cmd.cmd == 0x1d) {
-			uint32_t off_cs;
-			fread(&off_cs, sizeof(uint32_t), 1, fd);
-			uint32_t size_cs;
-			fread(&size_cs, sizeof(uint32_t), 1, fd);
-			
-			uint8_t *cd = malloc(size_cs);
-			fseek(fd, off_cs, SEEK_SET);
-			fread(cd, size_cs, 1, fd);
-			return cd;
-		} else {
-			off += cmd.cmdsize;
-		}
-	}
-	return NULL;
+    // Assuming it is a macho
+
+    uint8_t* retval = NULL;
+
+    char realname[4096];
+    if (realpath(name, realname) == 0)
+        return NULL;
+
+    FILE* fd = fopen(realname, "r");
+    if (fd == NULL)
+        return NULL;
+
+    uint32_t magic;
+    fread(&magic, sizeof(magic), 1, fd);
+    fseek(fd, 0, SEEK_SET);
+
+    long off = 0;
+    int ncmds = 0;
+
+    if (magic == FAT_MAGIC || magic == FAT_MAGIC_64) {
+
+        struct fat_header fh;
+        fread(&fh, sizeof(fh), 1, fd);
+
+        if (magic == FAT_MAGIC) {
+            //        printf("%s is fat macho\n", name);
+            struct fat_arch fa;
+            for (int i = 0; i != fh.nfat_arch; ++i) {
+                fread(&fa, sizeof(fa), 1, fd);
+                if (fa.cputype & CPU_TYPE_ARM) {
+                    off = fa.offset;
+                    break;
+                }
+            }
+        } else if (magic == FAT_MAGIC_64) {
+            //            printf("%s is fat64 macho\n", name);
+            struct fat_arch_64 fa;
+            for (int i = 0; i != fh.nfat_arch; ++i) {
+                fread(&fa, sizeof(fa), 1, fd);
+                if (fa.cputype & CPU_TYPE_ARM) {
+                    off = fa.offset;
+                    break;
+                }
+            }
+        }
+
+        fseek(fd, off, SEEK_SET);
+        fread(&magic, sizeof(magic), 1, fd);
+    }
+
+    if (magic == MH_MAGIC_64) {
+        //        printf("%s is 64bit macho\n", name);
+        struct mach_header_64 mh64;
+        fread(&mh64, sizeof(mh64), 1, fd);
+        off += sizeof(mh64);
+        ncmds = mh64.ncmds;
+    } else if (magic == MH_MAGIC) {
+        struct mach_header mh;
+        //        printf("%s is 32bit macho\n", name);
+        fread(&mh, sizeof(mh), 1, fd);
+        off = sizeof(mh);
+        ncmds = mh.ncmds;
+    } else {
+        printf("%s is not a macho! (or has foreign arch?) (magic: %x)\n", name, magic);
+        goto ret;
+    }
+
+    for (int i = 0; i < ncmds; i++) {
+        struct load_command cmd;
+        fseek(fd, off, SEEK_SET);
+        fread(&cmd, sizeof(struct load_command), 1, fd);
+        if (cmd.cmd == LC_CODE_SIGNATURE) {
+            uint32_t off_cs;
+            fread(&off_cs, sizeof(uint32_t), 1, fd);
+            uint32_t size_cs;
+            fread(&size_cs, sizeof(uint32_t), 1, fd);
+            //            printf("found CS in '%s': %d - %d\n", name, off_cs, size_cs);
+
+            uint8_t *cd = malloc(size_cs);
+            fseek(fd, off_cs, SEEK_SET);
+            fread(cd, size_cs, 1, fd);
+            retval = cd; goto ret;
+        } else {
+            //            printf("'%s': loadcmd %02x\n", name, cmd.cmd);
+            off += cmd.cmdsize;
+        }
+    }
+
+ret:;
+    if (fd != NULL) fclose(fd);
+    return retval;
 }
 
 
@@ -166,6 +233,11 @@ int mountroot(void) {
     v_mount = rk64(rootfs_vnode + koffset(KSTRUCT_OFFSET_VNODE_V_UN));
     wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1, v_flag);
 
+    // thanks, but we need suid
+//    v_flag = rk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG));
+//    v_flag &= ~MNT_NOSUID;
+//    wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG), v_flag);
+
     return ret;
 }
 
@@ -177,7 +249,7 @@ int empower(uint64_t proc) {
     }
 
     uint32_t csflags = rk32(proc + koffset(KSTRUCT_OFFSET_PROC_P_CSFLAGS));
-    csflags = (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW | CS_VALID) & ~CS_ALLOWED_MACHO;
+    csflags = (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD);
     wk32(proc + koffset(KSTRUCT_OFFSET_PROC_P_CSFLAGS), csflags);
     printf("empower proc at %llx\n", proc);
 

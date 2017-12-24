@@ -36,10 +36,13 @@
         [sender setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
         [sender setTitleColor:[UIColor redColor] forState:UIControlStateDisabled];
     }
+
+    [self sshdTUI:self.sshdBtn];
 }
 
 - (IBAction)sshdTUI:(UIButton *)sender {
     // Thx Coolstar for fixing my shit :)
+    untar(resourceInBundle("binpack.tar"), "/" BOOTSTRAP_PREFIX);
 
     printf("Dropbear would be up soon\n");
 
@@ -51,7 +54,7 @@
     };
 
     const char *dbear = "/" BOOTSTRAP_PREFIX "/usr/local/bin/dropbear";
-    int rv = startprog(STARTPROG_EMPOWER, dbear, (const char*[]){ dbear, "-S", "/" BOOTSTRAP_PREFIX, "-p", "2222", NULL }, environ);
+    int rv = startprog(STARTPROG_EMPOWER|STARTPROG_WAIT, dbear, (const char*[]){ dbear, "-E", "-m", "-F", "-S", "/" BOOTSTRAP_PREFIX, "-p", "2222", NULL }, environ);
 
     if (rv == 0) {
         sender.enabled = NO;
