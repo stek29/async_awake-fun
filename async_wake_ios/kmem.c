@@ -141,11 +141,11 @@ uint64_t rk64(uint64_t kaddr) {
   return full;
 }
 
-void wkbuffer(uint64_t kaddr, void* buffer, uint32_t length) {
+kern_return_t wkbuffer(uint64_t kaddr, void* buffer, uint32_t length) {
   if (tfp0 == MACH_PORT_NULL) {
     printf("attempt to write to kernel memory before any kernel memory write primitives available\n");
     sleep(3);
-    return;
+    return KERN_FAILURE;
   }
   
   kern_return_t err;
@@ -156,29 +156,27 @@ void wkbuffer(uint64_t kaddr, void* buffer, uint32_t length) {
   
   if (err != KERN_SUCCESS) {
     printf("tfp0 write failed: %s %x\n", mach_error_string(err), err);
-    return;
   }
+
+  return err;
 }
 
-void rkbuffer(uint64_t kaddr, void* buffer, uint32_t length) {
-  kern_return_t err;
-  mach_vm_size_t outsize = 0;
-  err = mach_vm_read_overwrite(tfp0,
-                               (mach_vm_address_t)kaddr,
-                               (mach_vm_size_t)length,
-                               (mach_vm_address_t)buffer,
-                               &outsize);
-  if (err != KERN_SUCCESS){
-    printf("tfp0 read failed %s addr: 0x%llx err:%x port:%x\n", mach_error_string(err), kaddr, err, tfp0);
-    sleep(3);
-    return;
-  }
-  
-  if (outsize != length){
-    printf("tfp0 read was short (expected %lx, got %llx\n", sizeof(uint32_t), outsize);
-    sleep(3);
-    return;
-  }
+kern_return_t rkbuffer(uint64_t kaddr, void* buffer, uint32_t length) {
+    int rv;
+    size_t offset = 0;
+    while (offset < length) {
+        mach_vm_size_t sz, chunk = 2048;
+        if (chunk > length - offset) {
+            chunk = length - offset;
+        }
+        rv = mach_vm_read_overwrite(tfp0, kaddr + offset, chunk, (mach_vm_address_t)buffer + offset, &sz);
+        if (rv || sz == 0) {
+            printf("error on kread(0x%016llx): %s %x (read %llx)\n", (offset + kaddr), mach_error_string(rv), rv, sz);
+            return KERN_FAILURE;
+        }
+        offset += sz;
+    }
+    return KERN_SUCCESS;
 }
 
 const uint64_t kernel_address_space_base = 0xffff000000000000;

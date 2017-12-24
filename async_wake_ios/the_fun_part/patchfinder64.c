@@ -467,7 +467,9 @@ init_kernel(addr_t base, const char *filename)
 
 #ifdef __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__
 #define close(f)
-    kread(base, buf, sizeof(buf));
+    if (kread(base, buf, sizeof(buf)) != KERN_SUCCESS) {
+        return -1;
+    }
 #else	/* __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ */
     int fd = open(filename, O_RDONLY);
     if (fd < 0) {
@@ -561,11 +563,11 @@ init_kernel(addr_t base, const char *filename)
     if (!kernel) {
         return -1;
     }
-    kread(kerndumpbase, kernel, kernel_size);
-//    if (rv != kernel_size) {
-//        free(kernel);
-//        return -1;
-//    }
+
+    if (kread(kerndumpbase, kernel, kernel_size) != KERN_SUCCESS) {
+        free(kernel);
+        return -1;
+    }
 
     kernel_mh = kernel + base - min;
 

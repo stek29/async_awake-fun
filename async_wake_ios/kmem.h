@@ -9,8 +9,8 @@ uint64_t rk64(uint64_t kaddr);
 void wk32(uint64_t kaddr, uint32_t val);
 void wk64(uint64_t kaddr, uint64_t val);
 
-void wkbuffer(uint64_t kaddr, void* buffer, uint32_t length);
-void rkbuffer(uint64_t kaddr, void* buffer, uint32_t length);
+kern_return_t wkbuffer(uint64_t kaddr, void* buffer, uint32_t length);
+kern_return_t rkbuffer(uint64_t kaddr, void* buffer, uint32_t length);
 
 void kmemcpy(uint64_t dest, uint64_t src, uint32_t length);
 
