@@ -9,6 +9,6 @@
 #ifndef fun_objc_h
 #define fun_objc_h
 
-const char* progname(const char*);
+const char* resourceInBundle(const char*);
 
 #endif /* fun_objc_h */

