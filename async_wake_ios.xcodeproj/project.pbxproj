@@ -10,6 +10,12 @@
 		6540F4B41FEB43FC00CF5B33 /* jailbreakd.m in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4B31FEB43FC00CF5B33 /* jailbreakd.m */; };
 		6540F4BE1FEFF37000CF5B33 /* fun.m in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4BC1FEFF37000CF5B33 /* fun.m */; };
 		6540F4BF1FEFF37000CF5B33 /* fun_utils.c in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4BD1FEFF37000CF5B33 /* fun_utils.c */; };
+		6540F4D51FEFFB0200CF5B33 /* tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4CF1FEFFB0200CF5B33 /* tar */; };
+		6540F4D61FEFFB0200CF5B33 /* test.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 6540F4D01FEFFB0200CF5B33 /* test.dylib */; };
+		6540F4D71FEFFB0200CF5B33 /* amfid_payload.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */; };
+		6540F4D81FEFFB0200CF5B33 /* inject_amfid in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D21FEFFB0200CF5B33 /* inject_amfid */; };
+		6540F4D91FEFFB0200CF5B33 /* binpack.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D31FEFFB0200CF5B33 /* binpack.tar */; };
+		6540F4DA1FEFFB0200CF5B33 /* cydia.tar in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D41FEFFB0200CF5B33 /* cydia.tar */; };
 		B003EB351FC583CB00C58441 /* kmem.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB331FC583CA00C58441 /* kmem.c */; };
 		B003EB381FC5863800C58441 /* find_port.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB361FC5863800C58441 /* find_port.c */; };
 		B003EB3B1FC58F4900C58441 /* kdbg.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB391FC58F4900C58441 /* kdbg.c */; };
@@ -34,6 +40,12 @@
 		6540F4BB1FEFF37000CF5B33 /* fun_utils.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = fun_utils.h; sourceTree = "<group>"; };
 		6540F4BC1FEFF37000CF5B33 /* fun.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = fun.m; sourceTree = "<group>"; };
 		6540F4BD1FEFF37000CF5B33 /* fun_utils.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = fun_utils.c; sourceTree = "<group>"; };
+		6540F4CF1FEFFB0200CF5B33 /* tar */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = tar; path = binaries/tar; sourceTree = "<group>"; };
+		6540F4D01FEFFB0200CF5B33 /* test.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = test.dylib; path = binaries/test.dylib; sourceTree = "<group>"; };
+		6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = amfid_payload.dylib; path = binaries/amfid_payload.dylib; sourceTree = "<group>"; };
+		6540F4D21FEFFB0200CF5B33 /* inject_amfid */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = inject_amfid; path = binaries/inject_amfid; sourceTree = "<group>"; };
+		6540F4D31FEFFB0200CF5B33 /* binpack.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; name = binpack.tar; path = binaries/binpack.tar; sourceTree = "<group>"; };
+		6540F4D41FEFFB0200CF5B33 /* cydia.tar */ = {isa = PBXFileReference; lastKnownFileType = archive.tar; name = cydia.tar; path = binaries/cydia.tar; sourceTree = "<group>"; };
 		B003EB331FC583CA00C58441 /* kmem.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kmem.c; sourceTree = "<group>"; };
 		B003EB341FC583CA00C58441 /* kmem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kmem.h; sourceTree = "<group>"; };
 		B003EB361FC5863800C58441 /* find_port.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = find_port.c; sourceTree = "<group>"; };
@@ -74,6 +86,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6540F4D61FEFFB0200CF5B33 /* test.dylib in Frameworks */,
+				6540F4D71FEFFB0200CF5B33 /* amfid_payload.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -119,6 +133,19 @@
 			name = AsyncStuff;
 			sourceTree = "<group>";
 		};
+		6540F4CE1FEFFADD00CF5B33 /* binaries */ = {
+			isa = PBXGroup;
+			children = (
+				6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */,
+				6540F4D31FEFFB0200CF5B33 /* binpack.tar */,
+				6540F4D41FEFFB0200CF5B33 /* cydia.tar */,
+				6540F4D21FEFFB0200CF5B33 /* inject_amfid */,
+				6540F4CF1FEFFB0200CF5B33 /* tar */,
+				6540F4D01FEFFB0200CF5B33 /* test.dylib */,
+			);
+			name = binaries;
+			sourceTree = "<group>";
+		};
 		B07A02301FB09B6F0018ACE5 = {
 			isa = PBXGroup;
 			children = (
@@ -138,6 +165,7 @@
 		B07A023B1FB09B6F0018ACE5 /* async_wake_ios */ = {
 			isa = PBXGroup;
 			children = (
+				6540F4CE1FEFFADD00CF5B33 /* binaries */,
 				6540F4BA1FEFEFE700CF5B33 /* AsyncStuff */,
 				6540F4B91FEFEF5700CF5B33 /* UIStuff */,
 				BCF206541FE32E1D0081CBE5 /* the_fun_part */,
@@ -221,10 +249,14 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6540F4DA1FEFFB0200CF5B33 /* cydia.tar in Resources */,
 				B0D79D621FDED41000B4F233 /* README in Resources */,
 				B07A02491FB09B6F0018ACE5 /* LaunchScreen.storyboard in Resources */,
 				B07A02461FB09B6F0018ACE5 /* Assets.xcassets in Resources */,
+				6540F4D81FEFFB0200CF5B33 /* inject_amfid in Resources */,
 				B07A02441FB09B6F0018ACE5 /* Main.storyboard in Resources */,
+				6540F4D91FEFFB0200CF5B33 /* binpack.tar in Resources */,
+				6540F4D51FEFFB0200CF5B33 /* tar in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -393,6 +425,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/async_wake_ios/the_fun_part",
+					"$(PROJECT_DIR)/async_wake_ios/binaries",
 				);
 				OTHER_LDFLAGS = (
 					"-framework",
@@ -417,6 +450,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/async_wake_ios/the_fun_part",
+					"$(PROJECT_DIR)/async_wake_ios/binaries",
 				);
 				OTHER_LDFLAGS = (
 					"-framework",
