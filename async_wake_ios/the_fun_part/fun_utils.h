@@ -36,7 +36,7 @@ int file_exist(char *filename);
 // Parts of jelbrek
 int mountroot(void);
 extern uint64_t kern_ucred;
-int empower(uint64_t proc);
+int empower(uint64_t proc, int setuid0);
 void init_empower(uint64_t kern_proc);
 
 #endif /* fun_utils_h */

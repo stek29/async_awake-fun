@@ -14,7 +14,7 @@
 #include "sys/mount.h"
 #include "csdefs.h"
 #include <mach-o/loader.h>
-#include <mach-o/fat.h>
+#include <mach-o/fat.h>\
 
 uint32_t swap_uint32(uint32_t val) {
 	val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF );
@@ -142,61 +142,61 @@ ret:;
 
 
 int cp(const char *from, const char *to) {
-	int fd_to, fd_from;
-	char buf[4096];
-	ssize_t nread;
-	int saved_errno;
-	
-	fd_from = open(from, O_RDONLY);
-	if (fd_from < 0)
-		return -1;
-	
-	fd_to = open(to, O_WRONLY | O_CREAT | O_EXCL, 0666);
-	if (fd_to < 0)
-		goto out_error;
-	
-	while ((nread = read(fd_from, buf, sizeof buf)) > 0)
-	{
-		char *out_ptr = buf;
-		ssize_t nwritten;
-		
-		do {
-			nwritten = write(fd_to, out_ptr, nread);
-			
-			if (nwritten >= 0)
-			{
-				nread -= nwritten;
-				out_ptr += nwritten;
-			}
-			else if (errno != EINTR)
-			{
-				goto out_error;
-			}
-		} while (nread > 0);
-	}
-	
-	if (nread == 0)
-	{
-		if (close(fd_to) < 0)
-		{
-			fd_to = -1;
-			goto out_error;
-		}
-		close(fd_from);
-		
-		/* Success! */
-		return 0;
-	}
-	
+    int fd_to, fd_from;
+    char buf[4096];
+    ssize_t nread;
+    int saved_errno;
+
+    fd_from = open(from, O_RDONLY);
+    if (fd_from < 0)
+        return -1;
+
+    fd_to = open(to, O_WRONLY | O_CREAT, 0666);
+    if (fd_to < 0)
+        goto out_error;
+
+    while ((nread = read(fd_from, buf, sizeof buf)) > 0)
+    {
+        char *out_ptr = buf;
+        ssize_t nwritten;
+
+        do {
+            nwritten = write(fd_to, out_ptr, nread);
+
+            if (nwritten >= 0)
+            {
+                nread -= nwritten;
+                out_ptr += nwritten;
+            }
+            else if (errno != EINTR)
+            {
+                goto out_error;
+            }
+        } while (nread > 0);
+    }
+
+    if (nread == 0)
+    {
+        if (close(fd_to) < 0)
+        {
+            fd_to = -1;
+            goto out_error;
+        }
+        close(fd_from);
+
+        /* Success! */
+        return 0;
+    }
+
 out_error:
-	saved_errno = errno;
-	
-	close(fd_from);
-	if (fd_to >= 0)
-		close(fd_to);
-	
-	errno = saved_errno;
-	return -1;
+    saved_errno = errno;
+
+    close(fd_from);
+    if (fd_to >= 0)
+        close(fd_to);
+
+    errno = saved_errno;
+    return -1;
 }
 
 int file_exist (char *filename) {
@@ -233,17 +233,17 @@ int mountroot(void) {
     v_mount = rk64(rootfs_vnode + koffset(KSTRUCT_OFFSET_VNODE_V_UN));
     wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG) + 1, v_flag);
 
-    // thanks, but we need suid
-//    v_flag = rk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG));
-//    v_flag &= ~MNT_NOSUID;
-//    wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG), v_flag);
+    // thanks Apple, but I think we need suid
+    v_flag = rk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG));
+    v_flag &= ~MNT_NOSUID;
+    wk32(v_mount + koffset(KSTRUCT_OFFSET_MOUNT_MNT_FLAG), v_flag);
 
     return ret;
 }
 
 uint64_t kern_ucred = 0;
 
-int empower(uint64_t proc) {
+int empower(uint64_t proc, int setuid0) {
     if (kern_ucred == 0) {
         return -1;
     }
@@ -259,8 +259,10 @@ int empower(uint64_t proc) {
     // steal kernel's label
     kcall(find_bcopy(), 3, kern_ucred + 0x78, self_ucred + 0x78, sizeof(uint64_t));
 
-    // set uid, real uid, saved uid to 0
-    kcall(find_bzero(), 2, self_ucred + 0x18, 12);
+    if (setuid0) {
+        // set uid, real uid, saved uid to 0
+        kcall(find_bzero(), 2, self_ucred + 0x18, 12);
+    }
 
     return 0;
 }

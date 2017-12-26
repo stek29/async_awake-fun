@@ -17,6 +17,7 @@
 		6540F4DB1FEFFD1900CF5B33 /* amfid_payload.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D11FEFFB0200CF5B33 /* amfid_payload.dylib */; };
 		6540F4DC1FEFFD1900CF5B33 /* test.dylib in Resources */ = {isa = PBXBuildFile; fileRef = 6540F4D01FEFFB0200CF5B33 /* test.dylib */; };
 		6540F4E01FF00B2800CF5B33 /* bootstrap.c in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4DF1FF00B2800CF5B33 /* bootstrap.c */; };
+		6540F4E31FF18C6800CF5B33 /* procfinder.c in Sources */ = {isa = PBXBuildFile; fileRef = 6540F4E21FF18C6800CF5B33 /* procfinder.c */; };
 		B003EB351FC583CB00C58441 /* kmem.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB331FC583CA00C58441 /* kmem.c */; };
 		B003EB381FC5863800C58441 /* find_port.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB361FC5863800C58441 /* find_port.c */; };
 		B003EB3B1FC58F4900C58441 /* kdbg.c in Sources */ = {isa = PBXBuildFile; fileRef = B003EB391FC58F4900C58441 /* kdbg.c */; };
@@ -50,6 +51,8 @@
 		6540F4DD1FF0098D00CF5B33 /* csdefs.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = csdefs.h; sourceTree = "<group>"; };
 		6540F4DE1FF00B2800CF5B33 /* bootstrap.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bootstrap.h; sourceTree = "<group>"; };
 		6540F4DF1FF00B2800CF5B33 /* bootstrap.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = bootstrap.c; sourceTree = "<group>"; };
+		6540F4E11FF18C6800CF5B33 /* procfinder.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = procfinder.h; sourceTree = "<group>"; };
+		6540F4E21FF18C6800CF5B33 /* procfinder.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = procfinder.c; sourceTree = "<group>"; };
 		B003EB331FC583CA00C58441 /* kmem.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = kmem.c; sourceTree = "<group>"; };
 		B003EB341FC583CA00C58441 /* kmem.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kmem.h; sourceTree = "<group>"; };
 		B003EB361FC5863800C58441 /* find_port.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = find_port.c; sourceTree = "<group>"; };
@@ -192,6 +195,8 @@
 				6540F4DD1FF0098D00CF5B33 /* csdefs.h */,
 				6540F4DE1FF00B2800CF5B33 /* bootstrap.h */,
 				6540F4DF1FF00B2800CF5B33 /* bootstrap.c */,
+				6540F4E11FF18C6800CF5B33 /* procfinder.h */,
+				6540F4E21FF18C6800CF5B33 /* procfinder.c */,
 			);
 			path = the_fun_part;
 			sourceTree = "<group>";
@@ -279,6 +284,7 @@
 				B0EF11171FCC784B00C1D14E /* symbols.c in Sources */,
 				B07A02411FB09B6F0018ACE5 /* ViewController.m in Sources */,
 				B04E25091FCD6DB300F09CCE /* kutils.c in Sources */,
+				6540F4E31FF18C6800CF5B33 /* procfinder.c in Sources */,
 				6540F4BF1FEFF37000CF5B33 /* fun_utils.c in Sources */,
 				BC8B64C41FE5252F00EDF749 /* fun_objc.m in Sources */,
 				B07A024C1FB09B6F0018ACE5 /* main.m in Sources */,

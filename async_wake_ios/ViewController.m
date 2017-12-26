@@ -27,17 +27,13 @@
 
     mach_port_t tfp0 = get_tfp0();
 
-    if (tfp0 != MACH_PORT_NULL) {
-        let_the_fun_begin(tfp0);
-
+    if (tfp0 != MACH_PORT_NULL && let_the_fun_begin(tfp0) == 0) {
         self.sshdBtn.enabled = YES;
         self.suicideBtn.enabled = YES;
     } else {
         [sender setTitleColor:[UIColor redColor] forState:UIControlStateNormal];
         [sender setTitleColor:[UIColor redColor] forState:UIControlStateDisabled];
     }
-
-    [self sshdTUI:self.sshdBtn];
 }
 
 - (IBAction)sshdTUI:(UIButton *)sender {
@@ -54,7 +50,7 @@
     };
 
     const char *dbear = "/" BOOTSTRAP_PREFIX "/usr/local/bin/dropbear";
-    int rv = startprog(STARTPROG_EMPOWER|STARTPROG_WAIT, dbear, (const char*[]){ dbear, "-E", "-m", "-F", "-S", "/" BOOTSTRAP_PREFIX, "-p", "2222", NULL }, environ);
+    int rv = startprog(STARTPROG_WAIT|STARTPROG_EMPOWER, dbear, (const char*[]){ dbear, "-E", "-m", "-F", "-S", "/" BOOTSTRAP_PREFIX, "-p", "2222", NULL }, environ);
 
     if (rv == 0) {
         sender.enabled = NO;
@@ -66,6 +62,7 @@
 
 - (IBAction)suicideTUI:(UIButton *)sender {
     sender.enabled = NO;
+    setuid(501);
     kill(getpid(), SIGKILL);
 }
 

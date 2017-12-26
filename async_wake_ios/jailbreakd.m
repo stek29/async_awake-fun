@@ -19,15 +19,11 @@
 #include <sys/mount.h>
 #include <sys/utsname.h>
 
-//#include "jailbreak.h"
-//#include "utilities.h"
-//#include "libjb.h"
+#include "procfinder.h"
 #include "kutils.h"
 #include "kcall.h"
 #include "symbols.h"
 #include "kmem.h"
-//#include "amfi_codesign.h"
-//#include "patchfinder64_11.h"
 
 #include <errno.h>
 #include <dirent.h>
@@ -60,26 +56,6 @@ uint64_t task_self;
 #define CS_DYLD_PLATFORM    0x2000000    /* dyld used to load this is a platform binary */
 #define CS_PLATFORM_BINARY    0x4000000    /* this is a platform binary */
 #define CS_PLATFORM_PATH    0x8000000    /* platform binary by the fact of path (osx only) */
-
-
-int enumerate_tasks(int (*f)(uint64_t, void* data), void* data) {
-    uint64_t task_self = task_self_addr();
-    uint64_t struct_task = rk64(task_self + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT));
-    uint64_t next_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_NEXT));
-
-    while (struct_task != -1 && struct_task != 0 && ((struct_task & 0xffff000000000000) == 0xffff000000000000) ) {
-        if (f(struct_task, data) != 0) return 0;
-        struct_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_PREV));
-    }
-
-    struct_task = next_task;
-    while (struct_task != -1 && struct_task != 0 && ((struct_task & 0xffff000000000000) == 0xffff000000000000) ) {
-        if (f(struct_task, data) != 0) return 0;
-        struct_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_NEXT));
-    }
-
-    return -1;
-}
 
 uint32_t ourpid;
 

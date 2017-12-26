@@ -11,21 +11,17 @@
 #include "kmem.h"
 #include "patchfinder64.h"
 #include "symbols.h"
+#include "procfinder.h"
 #include "kcall.h"
 #include "fun_objc.h"
 #include <spawn.h>
 
-
 uint64_t pid2proc(pid_t pid, int tries) {
     while (tries-- > 0) {
         sleep(1);
-        uint64_t proc = rk64(find_allproc());
-        while (proc) {
-            uint32_t pd = rk32(proc + koffset(KSTRUCT_OFFSET_PROC_PID));
-            if (pd == pid) {
-                return proc;
-            }
-            proc = rk64(proc);
+        uint64_t proc = proc_for_task(kerntask_for_pid(pid));
+        if (proc != -1) {
+            return proc;
         }
     }
     return 0;
@@ -44,10 +40,10 @@ int startprog(int flags, const char *prog, const char* args[], const char* envp[
 
     if ((flags & STARTPROG_EMPOWER) && (kern_ucred != 0)) {
         uint64_t proc = pid2proc(pd, 3);
-        if (proc != 0) {
+        if (proc == 0) {
             printf("pid2proc failed for pid=%u\n", pd);
         } else {
-            empower(proc);
+            empower(proc, 1);
         }
     }
 
@@ -65,29 +61,29 @@ int startprog(int flags, const char *prog, const char* args[], const char* envp[
     return rv;
 }
 
-void doubleforkexec(const char *prog, const char* args[], const char* envp[]);
-
 const char *tar = "/" BOOTSTRAP_PREFIX "/tar";
 static int tar_ready = 0;
 
+void doubleforkexec(const char *prog, const char* args[], const char* envp[]);
+
 int untar(const char* archive, const char *dstdir) {
     if (!tar_ready) {
-        printf("mkdir: %d\n", mkdir("/" BOOTSTRAP_PREFIX, 777));
+        printf("mkdir: %d\n", mkdir("/" BOOTSTRAP_PREFIX, 0777));
         printf("unlink: %d\n", unlink(tar));
         printf("cp: %d\n", cp(resourceInBundle("tar"), tar));
-        printf("chmod: %d\n", chmod(tar, 777));
+        printf("chmod: %d\n", chmod(tar, 0777));
         tar_ready = 1;
     }
 
-//    return startprog(STARTPROG_EMPOWER|STARTPROG_WAIT,
+//    return startprog(STARTPROG_WAIT,
 //                     tar,
 //                     (const char*[]){ tar, "-xvpf", archive, "-C", dstdir, NULL },
 //                     NULL);
 
-
-    doubleforkexec(tar, (const char*[]){ tar, "--help", NULL}, NULL);
-
-    return 1337;
+    doubleforkexec(tar,
+                   (const char*[]){ tar, "-xvpf", archive, "-C", dstdir, NULL },
+                   NULL);
+    return -1;
 }
 
 void doubleforkexec(const char *prog, const char* args[], const char* envp[]) {
@@ -101,13 +97,14 @@ void doubleforkexec(const char *prog, const char* args[], const char* envp[]) {
     // double fork, kill first fork (so second fork has ppid=1), and do exec.
     // That made the last check pass :)
 
+    // But there is another way -- suggested by J/Morpheus -- just setting ppid to 1
+
     // However, process is still being killed -- now because "outside of container && !i_can_has_debugger"
     // And kernel panic happens :(
 
     // So, the best solution for now is just adding platform-application = true
     // entitlement to everything you want to execute
 
-    // I wonder how J/Morpheus got around this...
     // Btw, why the hell does it work for binaries which are injected into trust cache?!
 
     // -------------------------
@@ -123,14 +120,15 @@ void doubleforkexec(const char *prog, const char* args[], const char* envp[]) {
         // still parent process
 
         // empower child & for it to exit
-        empower(pid2proc(pid1, 3));
+        empower(pid2proc(pid1, 3), 1);
         int status = 0;
         waitpid(pid1, &status, 0);
 
         // empower grandchild
         printf("Child exit status is %d\n", status);
         printf("Implying grandchild pid is %u\n", pid1 + 1);
-        empower(pid2proc(pid1 + 1, 3));
+        sleep(1);
+        empower(pid2proc(pid1 + 1, 3), 1);
     } else {
         // child process
         sleep(4); // wait for empower
@@ -144,8 +142,9 @@ void doubleforkexec(const char *prog, const char* args[], const char* envp[]) {
             // grandchild
             sleep(4); // wait for empower
             setuid(0);
-
+            printf("Doin execve in grandchild\n");
             execve(prog, (char**)args, (char**)envp);
+            printf("FAILED!\n");
         }
     }
 }
