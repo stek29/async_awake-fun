@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <errno.h>
 
+void calljailbreakd(pid_t PID);
 // export PATH="$BOOTSTRAP_PREFIX/usr/local/bin:$BOOTSTRAP_PREFIX/usr/sbin:$BOOTSTRAP_PREFIX/usr/bin:$BOOTSTRAP_PREFIX/sbin:$BOOTSTRAP_PREFIX/bin"
 #define BOOTSTRAP_PREFIX "bootstrap"
 
@@ -128,6 +129,7 @@ uint8_t *getCodeDirectory(const char* name) {
     // Assuming it is a macho
     
     FILE* fd = fopen(name, "r");
+    if (fd == NULL) return NULL;
 
     uint32_t magic;
     fread(&magic, sizeof(magic), 1, fd);
@@ -610,10 +612,13 @@ do { \
         printf("[fun] copied the required binaries into the right places\n");
     }
 
-    inject_trusts(3, (const char **)&(const char*[]){
+    inject_trusts(5, (const char **)&(const char*[]){
         "/fun_bins/inject_amfid",
         "/fun_bins/amfid_payload.dylib",
         "/fun_bins/inject_launchd",
+        // fuck this shit, just "stuff" the trustcache
+        "/fun_bins/launchd_payload.dylib",
+        "/Library/Substitute/Helpers/posixspawn-hook.dylib",
     });
     
 #define BinaryLocation_amfid "/fun_bins/inject_amfid"
@@ -623,13 +628,7 @@ do { \
     const char* args_amfid[] = {BinaryLocation_amfid, itoa(amfid_pid), NULL};
     int rv = posix_spawn(&pd, BinaryLocation_amfid, NULL, NULL, (char **)&args_amfid, NULL);
     waitpid(pd, NULL, 0);
-    
-#define BinaryLocation_launchd "/fun_bins/inject_launchd"
-    
-    /*const char* args_launchd[] = {BinaryLocation_launchd, itoa(1), NULL};
-    rv = posix_spawn(&pd, BinaryLocation_launchd, NULL, NULL, (char **)&args_launchd, NULL);
-    waitpid(pd, NULL, 0);*/
-    
+
 //	uint8_t launchd[19];
 //	kread(find_amficache()+0x11358, launchd, 19);
 //
@@ -702,13 +701,41 @@ do { \
 	 */
 	
 	// Cleanup
-    
+
     wk64(IOSurfaceRootUserClient_port + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT), IOSurfaceRootUserClient_addr);
-    
+
     printf("Starting server...\n");
     mach_port_t pass_port = MACH_PORT_NULL;
     start_jailbreakd(kern_ucred, &pass_port, tfp0, kernel_base);
-    
+
+    // let jailbreakd finish spamming in log
+    sleep(2);
+    do {
+        // probably we only need to give launchd skip-library-validation
+        // and unset CS_KILL, but meh
+        calljailbreakd(1);
+        // let jelbrekd finish
+        sleep(1);
+
+        extern mach_port_t build_fake_tfp(uint32_t pid);
+#define BinaryLocation_launchd "/fun_bins/inject_launchd"
+        mach_port_t sp;
+        task_get_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, &sp);
+        mach_port_t fake_launchd_task = build_fake_tfp(1);
+        if (fake_launchd_task == MACH_PORT_NULL) {
+            break;
+        }
+        task_set_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, fake_launchd_task);
+
+        const char* args_launchd[] = {BinaryLocation_launchd, NULL};
+        rv = posix_spawn(&pd, BinaryLocation_launchd, NULL, NULL, (char **)&args_launchd, NULL);
+        task_set_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, sp);
+
+        int status;
+        waitpid(pd, &status, 0);
+        printf("inject_launchd exited with status %d\n", status);
+    } while (0);
+
 	wk64(rk64(kern_ucred+0x78)+0x8, 0);
 }
 
@@ -730,20 +757,26 @@ void inject_trusts(int pathc, const char *paths[]) {
     fake_chain.next = rk64(tc);
     *(uint64_t *)&fake_chain.uuid[0] = 0xabadbabeabadbabe;
     *(uint64_t *)&fake_chain.uuid[8] = 0xabadbabeabadbabe;
-    fake_chain.count = pathc;
 
+    int cnt = 0;
     uint8_t hash[CC_SHA256_DIGEST_LENGTH];
     hash_t *allhash = malloc(sizeof(hash_t) * pathc);
     for (int i = 0; i != pathc; ++i) {
-        getSHA256inplace(getCodeDirectory(paths[i]), hash);
-        memmove(allhash[i], hash, sizeof(hash_t));
+        uint8_t *cd = getCodeDirectory(paths[i]);
+        if (cd != NULL) {
+            getSHA256inplace(cd, hash);
+            memmove(allhash[cnt], hash, sizeof(hash_t));
+            ++cnt;
+        }
     }
 
-    size_t length = (sizeof(fake_chain) + pathc * sizeof(hash_t) + 0xFFFF) & ~0xFFFF;
+    fake_chain.count = cnt;
+
+    size_t length = (sizeof(fake_chain) + cnt * sizeof(hash_t) + 0xFFFF) & ~0xFFFF;
     uint64_t kernel_trust = kalloc(length);
 
     kwrite(kernel_trust, &fake_chain, sizeof(fake_chain));
-    kwrite(kernel_trust + sizeof(fake_chain), allhash, pathc * sizeof(hash_t));
+    kwrite(kernel_trust + sizeof(fake_chain), allhash, cnt * sizeof(hash_t));
     wk64(tc, kernel_trust);
 }
 
@@ -802,4 +835,60 @@ int startprog(uint64_t kern_ucred, bool wait, const char *prog, const char* args
     if (wait)
         waitpid(pd, NULL, 0);
     return rv;
+}
+
+
+#include <netinet/in.h>
+#include <netdb.h>
+
+#define JAILBREAKD_COMMAND_ENTITLE_AND_SIGCONT_AFTER_DELAY 4
+struct __attribute__((__packed__)) JAILBREAKD_ENTITLE_PID_AND_SIGCONT {
+    uint8_t Command;
+    int32_t PID;
+};
+
+void calljailbreakd(pid_t PID){
+#define BUFSIZE 1024
+
+    int sockfd, portno, n;
+    int serverlen;
+    struct sockaddr_in serveraddr;
+    struct hostent *server;
+    char *hostname;
+    char buf[BUFSIZE];
+
+    hostname = "127.0.0.1";
+    portno = 5;
+
+    sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+        printf("ERROR opening socket\n");
+
+    /* gethostbyname: get the server's DNS entry */
+    server = gethostbyname(hostname);
+    if (server == NULL) {
+        fprintf(stderr,"ERROR, no such host as %s\n", hostname);
+        exit(0);
+    }
+
+    /* build the server's Internet address */
+    bzero((char *) &serveraddr, sizeof(serveraddr));
+    serveraddr.sin_family = AF_INET;
+    bcopy((char *)server->h_addr,
+          (char *)&serveraddr.sin_addr.s_addr, server->h_length);
+    serveraddr.sin_port = htons(portno);
+
+    /* get a message from the user */
+    bzero(buf, BUFSIZE);
+
+    struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT entitlePacket;
+    entitlePacket.Command = JAILBREAKD_COMMAND_ENTITLE_AND_SIGCONT_AFTER_DELAY;
+    entitlePacket.PID = PID;
+
+    memcpy(buf, &entitlePacket, sizeof(struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT));
+
+    serverlen = sizeof(serveraddr);
+    n = sendto(sockfd, buf, sizeof(struct JAILBREAKD_ENTITLE_PID_AND_SIGCONT), 0, (const struct sockaddr *)&serveraddr, serverlen);
+    if (n < 0)
+        printf("Error in sendto\n");
 }
