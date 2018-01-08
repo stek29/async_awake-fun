@@ -1,1 +1,2 @@
-#define JAILBREAKDDEBUG 0
+#define JAILBREAKDDEBUG 1
+#include <Foundation/Foundation.h>

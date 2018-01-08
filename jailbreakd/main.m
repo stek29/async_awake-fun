@@ -12,6 +12,7 @@
 #include "patchfinder64.h"
 #include "kern_utils.h"
 #include "offsets.h"
+#include <Foundation/Foundation.h>
 
 #define SPECIAL_PORT TASK_BOOTSTRAP_PORT
 
