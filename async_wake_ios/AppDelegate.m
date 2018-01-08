@@ -9,6 +9,8 @@
 #include <dlfcn.h>
 #import <CoreFoundation/CoreFoundation.h>
 
+struct ucred credfuck;
+
 extern int MISValidateSignatureAndCopyInfo (CFStringRef File, CFDictionaryRef Opts, NSDictionary *Info);
 extern CFStringRef MISCopyErrorStringForErrorCode(int Error);
 

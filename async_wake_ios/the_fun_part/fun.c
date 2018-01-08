@@ -14,7 +14,7 @@
 #include <errno.h>
 
 // export PATH="$BOOTSTRAP_PREFIX/usr/local/bin:$BOOTSTRAP_PREFIX/usr/sbin:$BOOTSTRAP_PREFIX/usr/bin:$BOOTSTRAP_PREFIX/sbin:$BOOTSTRAP_PREFIX/bin"
-#define BOOTSTRAP_PREFIX "bootstrap"
+#define BOOTSTRAP_PREFIX "oldstrap"
 
 int cp(const char *to, const char *from)
 {
@@ -27,7 +27,7 @@ int cp(const char *to, const char *from)
 	if (fd_from < 0)
 		return -1;
 	
-	fd_to = open(to, O_WRONLY | O_CREAT | O_EXCL, 0666);
+	fd_to = open(to, O_WRONLY | O_CREAT, 0666);
 	if (fd_to < 0)
 		goto out_error;
 	
@@ -415,8 +415,6 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
         close(fd);
 
         wk32(v_mount + 0x70, rk32(v_mount + 0x70) & ~MNT_NOSUID);
-
-        rv = mount("hfs", "/Developer", MNT_UPDATE, (void *)&nmz);
     }
 
 	printf("Did we mount / as read+write? %s\n", file_exist("/.bit_of_fun") ? "yes" : "no");
@@ -439,33 +437,39 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
 //    printf("filled the shit up!!\n");
 
     mkdir("/" BOOTSTRAP_PREFIX, 0777);
-    const char *tar = "/" BOOTSTRAP_PREFIX "/tar";
+    const char *tar = "/" BOOTSTRAP_PREFIX "/UNtar";
     cp(tar, progname("tar"));
     chmod(tar, 0777);
     inject_trusts(1, (const char **)&(const char*[]){tar});
 
     int rv;
     int process_binlist(const char *prefix, const char *path);
-
-    if (access(progname("cydia.tar"), F_OK) != -1) {
+//
+//    if (access(progname("cydia.tar"), F_OK) != -1) {
 //        if (access("/usr/share/trustme.txt", F_OK) == -1) {
-            rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("cydia.tar"), "-C", "/", NULL });
+//            rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("cydia.tar"), "-C", "/", NULL });
 //        }
-    }
+//    }
 
-    if (access("/usr/share/trustme.txt", F_OK) != -1) {
-        rv = process_binlist("/", "/usr/share/trustme.txt");
-        const char *uicache = "/" BOOTSTRAP_PREFIX "/usr/local/bin/uicache";
-        rv = startprog(kern_ucred, uicache, (char **)&(const char*[]){ uicache, NULL });
-    }
+//    if (access("/usr/share/trustme.txt", F_OK) != -1) {
+//        rv = process_binlist("/", "/usr/share/trustme.txt");
+//        const char *uicache = "/" BOOTSTRAP_PREFIX "/usr/local/bin/uicache";
+//        rv = startprog(kern_ucred, uicache, (char **)&(const char*[]){ uicache, NULL });
+//    }
 
 
     rv = startprog(kern_ucred, tar, (char **)&(const char*[]){ tar, "-xpf", progname("binpack.tar"), "-C", "/" BOOTSTRAP_PREFIX, NULL });
     unlink(tar);
     rv = process_binlist(BOOTSTRAP_PREFIX, "/" BOOTSTRAP_PREFIX "/binlist.txt");
+    inject_trusts(4, (const char **)&(const char*[]){
+        "/" BOOTSTRAP_PREFIX "/usr/local/bin/dropbear",
+        "/" BOOTSTRAP_PREFIX "/bin/sh",
+        "/" BOOTSTRAP_PREFIX "/usr/bin/login",
+        "/usr/bin/bash",
+    } );
 
-    void start_jailbreakd(void);
-    start_jailbreakd();
+//    void start_jailbreakd(void);
+//    start_jailbreakd();
 
     if (rv == 0) {
         printf("Dropbear would be up soon\n");
@@ -473,7 +477,7 @@ void let_the_fun_begin(mach_port_t tfp0, mach_port_t user_client) {
         printf("BOOTSTRAP_PREFIX=\"/" BOOTSTRAP_PREFIX "\"\n");
         printf("export PATH=\"$BOOTSTRAP_PREFIX/usr/local/bin:$BOOTSTRAP_PREFIX/usr/sbin:$BOOTSTRAP_PREFIX/usr/bin:$BOOTSTRAP_PREFIX/sbin:$BOOTSTRAP_PREFIX/bin\"\n");
         printf(" --- \n");
-        const char *dbear = "/" BOOTSTRAP_PREFIX "/usr/local/bin/dropbear";
+        const char *dbear = "/" "bootstrap" "/usr/local/bin/dropbear";
         rv = startprog(kern_ucred, dbear, (char **)&(const char*[]){ dbear, "-E", "-m", "-F", "-S", "/"/* BOOTSTRAP_PREFIX*/, NULL });
     }
 
