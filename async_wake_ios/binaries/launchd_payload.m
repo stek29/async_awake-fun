@@ -80,7 +80,7 @@ int fake_posix_spawn(pid_t * pid, const char* path, const posix_spawn_file_actio
 }
 
 int fake_posix_spawnp(pid_t * pid, const char* file, const posix_spawn_file_actions_t *file_actions, const posix_spawnattr_t *attrp, char const* argv[], char const* envp[]) {
-    FILE *f = fopen("/inject_launchd_log.txt", "a");
+    FILE *f = fopen("/var/logs/inject_launchd_log.txt", "a");
     fprintf(f, "We got called (fake_posix_spawnp)! %s\n", file);
     
     if (argv != NULL){
@@ -89,6 +89,18 @@ int fake_posix_spawnp(pid_t * pid, const char* file, const posix_spawn_file_acti
         while (*currentarg != NULL){
             fprintf(f,"\t%s\n", *currentarg);
             currentarg++;
+        }
+    }
+
+    if (strcmp(file, "/usr/libexec/xpcproxy") == 0) {
+        if (argv[1] != NULL) {
+            if (strstr(argv[1], "com.apple.diagnosticd")
+                ||strstr(argv[1], "com.apple.ReportCrash")
+            ) {
+                    fprintf(f, "xpcproxy for diagnosticd or ReportCrash -- no hooking!\n\n");
+                    fclose(f);
+                    return old_pspawnp(pid, file, file_actions, attrp, argv, envp);
+                }
         }
     }
     
@@ -115,7 +127,7 @@ int fake_posix_spawnp(pid_t * pid, const char* file, const posix_spawn_file_acti
         newenvp[i] = envp[j];
         j++;
     }
-    newenvp[j] = "DYLD_INSERT_LIBRARIES=/fun_bins/xpcproxy_payload.dylib";
+    newenvp[j] = "DYLD_INSERT_LIBRARIES=/Library/Substitute/Helpers/posixspawn-hook.dylib";
     newenvp[j+1] = NULL;
     
     fprintf(f, "New Env: \n");
@@ -158,7 +170,7 @@ int fake_posix_spawnp(pid_t * pid, const char* file, const posix_spawn_file_acti
 
 
 void* thd_func(void* arg){
-    FILE *f = fopen("/inject_launchd_log.txt", "a");
+    FILE *f = fopen("/var/logs/inject_launchd_log.txt", "a");
     
     fprintf(f, "In a new thread!\n");
     NSLog(@"In a new thread!");
