@@ -498,8 +498,9 @@ uint64_t binary_load_address(mach_port_t tp) {
 }
 
 int main(int argc, char* argv[]) {
-	task_t remoteTask;
-	kern_return_t kr = task_for_pid(mach_task_self(), atoi(argv[1]), &remoteTask);
+	mach_port_t remoteTask;
+	kern_return_t kr;
+	kr = task_get_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, &remoteTask);
 	if (kr != KERN_SUCCESS) {
 		NSLog(@"Failed to get task for launchd!");
 		return -1;
